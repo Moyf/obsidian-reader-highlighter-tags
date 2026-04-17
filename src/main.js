@@ -55,6 +55,10 @@ const DEFAULT_SETTINGS = {
 
     // NEW: Tooltips (disabled by default)
     showTooltips: false,
+
+    // NEW: Frontmatter Auto-Tag
+    enableFrontmatterTag: false,
+    frontmatterTag: "resaltados",
 };
 
 export default class ReadingHighlighterPlugin extends Plugin {
@@ -381,6 +385,10 @@ export default class ReadingHighlighterPlugin extends Plugin {
             return;
         }
 
+        // Use the file returned by locateSelection (may be an embed)
+        const targetFile = result.file;
+        await this.saveUndoState(targetFile);
+
         let mode = "highlight";
         let payload = "";
 
@@ -389,7 +397,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
             payload = this.settings.highlightColor;
         }
 
-        await this.applyMarkdownModification(view.file, result.raw, result.start, result.end, mode, payload);
+        await this.applyMarkdownModification(targetFile, "", result.start, result.end, mode, payload);
 
         this.restoreScroll(view, scrollPos);
         sel?.removeAllRanges();
@@ -433,6 +441,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
             return;
         }
 
+        const targetFile = result.file;
+        await this.saveUndoState(targetFile);
+
         // Open suggestion modal
         new TagSuggestModal(this, async (tag) => {
             // Track recent tags
@@ -440,7 +451,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 this.addRecentTag(tag);
             }
 
-            await this.applyMarkdownModification(view.file, result.raw, result.start, result.end, "tag", tag);
+            await this.applyMarkdownModification(targetFile, "", result.start, result.end, "tag", tag);
             this.restoreScroll(view, scrollPos);
             window.getSelection()?.removeAllRanges();
         }).open();
@@ -485,14 +496,13 @@ export default class ReadingHighlighterPlugin extends Plugin {
             return;
         }
 
+        const targetFile = result.file;
+        await this.saveUndoState(targetFile);
+
         // Open annotation modal
         new AnnotationModal(this.app, async (comment) => {
-            if (!comment.trim()) return;
-
-            // Save for undo
-            await this.saveUndoState(view.file);
-
-            await this.applyAnnotation(view.file, result.raw, result.start, result.end, comment);
+            const currentRaw = await this.app.vault.read(targetFile);
+            await this.applyAnnotation(targetFile, currentRaw, result.start, result.end, comment);
             this.restoreScroll(view, scrollPos);
             window.getSelection()?.removeAllRanges();
             new Notice("Annotation added!");
@@ -501,6 +511,9 @@ export default class ReadingHighlighterPlugin extends Plugin {
 
     // Apply annotation as footnote
     async applyAnnotation(file, raw, start, end, comment) {
+        if (!raw) {
+            raw = await this.app.vault.read(file);
+        }
         // Find next footnote number
         const footnotePattern = /\[\^(\d+)\]/g;
         let maxNumber = 0;
@@ -552,7 +565,10 @@ export default class ReadingHighlighterPlugin extends Plugin {
             return;
         }
 
-        await this.applyMarkdownModification(view.file, result.raw, result.start, result.end, "remove");
+        const targetFile = result.file;
+        await this.saveUndoState(targetFile);
+
+        await this.applyMarkdownModification(targetFile, "", result.start, result.end, "remove");
 
         new Notice("Highlighting removed.");
         this.restoreScroll(view, scrollPos);
@@ -684,8 +700,21 @@ export default class ReadingHighlighterPlugin extends Plugin {
     }
 
     async applyMarkdownModification(file, raw, start, end, mode, payload = "", autoTag = "") {
+        if (!raw) {
+            raw = await this.app.vault.read(file);
+        }
         let expandedStart = start;
         let expandedEnd = end;
+
+        // EDGE CLAMP: Manual frontmatter detection for boundary protection
+        let bodyStart = 0;
+        if (raw.startsWith('---')) {
+            const secondDash = raw.indexOf('---', 3);
+            if (secondDash !== -1) {
+                // The body starts exactly after the second separator
+                bodyStart = secondDash + 3;
+            }
+        }
 
         // Iterative Expansion
         let expanded = true;
@@ -693,11 +722,15 @@ export default class ReadingHighlighterPlugin extends Plugin {
             expanded = false;
 
             const preceding = raw.substring(0, expandedStart);
-            const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]|\[)$/);
+            // Updated matchBack to include footnote definitions like [^1]:
+            const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]:?\s?|\[)$/);
 
-            if (matchBack) {
-                expandedStart -= matchBack[0].length;
-                expanded = true;
+            if (matchBack && expandedStart > bodyStart) {
+                const newStart = expandedStart - matchBack[0].length;
+                if (newStart >= bodyStart) {
+                    expandedStart = newStart;
+                    expanded = true;
+                }
             }
 
             const following = raw.substring(expandedEnd);
@@ -710,38 +743,40 @@ export default class ReadingHighlighterPlugin extends Plugin {
         }
 
         const selectedText = raw.substring(expandedStart, expandedEnd);
-        const paragraphs = selectedText.split(/\n\s*\n/);
+        // Split by paragraph while preserving Windows/Mac/Linux line endings
+        const paragraphs = selectedText.split(/\r?\n\s*\r?\n/);
 
         // Pre-calculate tag prefix
         let fullTag = "";
+        const sanitizeTag = (t) => t.trim().replace(/^#/, '').replace(/\s+/g, '_');
+
         if (mode === "tag" && payload) {
-            const prefix = this.settings.defaultTagPrefix ? this.settings.defaultTagPrefix.trim() : "";
-            const cleanPayload = payload.startsWith("#") ? payload.substring(1) : payload;
+            const prefix = this.settings.defaultTagPrefix ? sanitizeTag(this.settings.defaultTagPrefix) : "";
+            // Payload can be a space-separated list of tags (each starting with #) from the modal
+            const cleanPayload = payload.split(/\s+/).map(sanitizeTag).filter(t => t).map(t => `#${t}`).join(" ");
 
             if (prefix) {
-                const cleanPrefix = prefix.startsWith("#") ? prefix.substring(1) : prefix;
-                fullTag = `#${cleanPrefix} #${cleanPayload}`;
+                fullTag = `#${sanitizeTag(prefix)} ${cleanPayload}`;
             } else {
-                fullTag = `#${cleanPayload}`;
+                fullTag = cleanPayload;
             }
         } else if ((mode === "highlight" || mode === "color") && this.settings.defaultTagPrefix) {
-            const autoTagSetting = this.settings.defaultTagPrefix.trim();
+            const autoTagSetting = sanitizeTag(this.settings.defaultTagPrefix);
             if (autoTagSetting) {
-                const cleanTag = autoTagSetting.startsWith("#") ? autoTagSetting.substring(1) : autoTagSetting;
-                fullTag = `#${cleanTag}`;
+                fullTag = `#${autoTagSetting}`;
             }
         }
 
         // Add autoTag if provided (from color palette)
         if (autoTag) {
-            const cleanAutoTag = autoTag.startsWith("#") ? autoTag : `#${autoTag}`;
-            fullTag = fullTag ? `${fullTag} ${cleanAutoTag}` : cleanAutoTag;
+            const cleanAutoTag = sanitizeTag(autoTag);
+            fullTag = fullTag ? `${fullTag} #${cleanAutoTag}` : `#${cleanAutoTag}`;
         }
 
         const processedParagraphs = paragraphs.map(paragraph => {
             if (!paragraph.trim()) return paragraph;
 
-            const lines = paragraph.split("\n");
+            const lines = paragraph.split(/\r?\n/);
 
             const processedLines = lines.map(line => {
                 let cleanLine = line.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, "");
@@ -794,9 +829,50 @@ export default class ReadingHighlighterPlugin extends Plugin {
             return processedLines.join("\n");
         });
 
-        const replaceBlock = processedParagraphs.join("\n\n");
+        // Use appropriate newline for joining paragraphs based on the source
+        const newline = raw.includes("\r\n") ? "\r\n" : "\n";
+        const replaceBlock = processedParagraphs.join(newline + newline);
         const newContent = raw.substring(0, expandedStart) + replaceBlock + raw.substring(expandedEnd);
         await this.app.vault.modify(file, newContent);
+
+        // --- Frontmatter Auto-Tag Injection ---
+        if (mode !== "remove" && this.settings.enableFrontmatterTag && this.settings.frontmatterTag) {
+            const targetTag = this.settings.frontmatterTag.trim().replace(/\s+/g, '_').replace(/^#/, '');
+            if (targetTag) {
+                try {
+                    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+                        // Initialize if missing
+                        if (frontmatter.tags === undefined || frontmatter.tags === null) {
+                            frontmatter.tags = [targetTag];
+                            return;
+                        }
+
+                        // Deduplicate if already an array
+                        if (Array.isArray(frontmatter.tags)) {
+                            if (!frontmatter.tags.includes(targetTag)) {
+                                frontmatter.tags.push(targetTag);
+                            }
+                        }
+                        // Handle legacy string format
+                        else if (typeof frontmatter.tags === "string") {
+                            // Support both space-separated and comma-separated tags
+                            const existingTags = frontmatter.tags.includes(',') 
+                                ? frontmatter.tags.split(',').map(t => t.trim())
+                                : frontmatter.tags.split(/\s+/).map(t => t.trim());
+                            
+                            const cleanTags = existingTags.filter(t => t.replace(/^#/, '') !== targetTag && t !== "");
+                            
+                            if (cleanTags.length === existingTags.length) {
+                                // Tag not found, add it
+                                frontmatter.tags = [...cleanTags, targetTag];
+                            }
+                        }
+                    });
+                } catch (e) {
+                    console.error("Reader Highlighter Tags: Failed to inject frontmatter tag.", e);
+                }
+            }
+        }
     }
 
     restoreScroll(view, pos) {
@@ -902,7 +978,7 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
                 .setPlaceholder("book")
                 .setValue(this.plugin.settings.defaultTagPrefix)
                 .onChange(async (value) => {
-                    this.plugin.settings.defaultTagPrefix = value;
+                    this.plugin.settings.defaultTagPrefix = value.replace(/\s+/g, '_').replace(/^#/, '');
                     await this.plugin.saveSettings();
                 }));
 
@@ -1029,5 +1105,32 @@ class ReadingHighlighterSettingTab extends PluginSettingTab {
                     this.plugin.settings.showTooltips = value;
                     await this.plugin.saveSettings();
                 }));
+
+        // === Frontmatter Integration ===
+        containerEl.createEl("h3", { text: "Frontmatter Integration" });
+
+        new Setting(containerEl)
+            .setName("Auto-tag highlight in Frontmatter")
+            .setDesc("Automatically inject a specific tag into the note's frontmatter whenever you highlight text.")
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.enableFrontmatterTag)
+                .onChange(async (value) => {
+                    this.plugin.settings.enableFrontmatterTag = value;
+                    await this.plugin.saveSettings();
+                    this.display(); // Refresh to show/hide the tag field
+                }));
+
+        if (this.plugin.settings.enableFrontmatterTag) {
+            new Setting(containerEl)
+                .setName("Frontmatter highlight tag")
+                .setDesc("The tag to add (e.g. 'resaltados'). Do not include the # symbol.")
+                .addText(text => text
+                    .setPlaceholder("resaltados")
+                    .setValue(this.plugin.settings.frontmatterTag)
+                    .onChange(async (value) => {
+                        this.plugin.settings.frontmatterTag = value.replace(/^#/, ''); // Strip # if user adds it
+                        await this.plugin.saveSettings();
+                    }));
+        }
     }
 }

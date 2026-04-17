@@ -399,12 +399,135 @@ var SelectionLogic = class {
     this.app = app;
   }
   async locateSelection(processedFile, view, selectionSnippet, context = null, occurrenceIndex = 0) {
-    const file = view.file;
-    const raw = await this.app.vault.read(file);
-    let candidates = this.findAllCandidates(raw, selectionSnippet);
-    if (candidates.length === 0) {
-      candidates = this.findCandidatesStripped(raw, selectionSnippet);
+    const snippet = this.stripBrowserJunk(selectionSnippet);
+    const activeFile = view.file;
+    const opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
+    const virtual = await this.resolveVirtualContent(activeFile, 0, opContext);
+    const fullRaw = virtual.text;
+    let firstSegmentBodyStart = 0;
+    if (fullRaw.startsWith("---")) {
+      const secondDash = fullRaw.indexOf("---", 3);
+      if (secondDash !== -1) {
+        firstSegmentBodyStart = secondDash + 3;
+        while (firstSegmentBodyStart < fullRaw.length && (fullRaw[firstSegmentBodyStart] === "\n" || fullRaw[firstSegmentBodyStart] === "\r")) {
+          firstSegmentBodyStart++;
+        }
+      }
     }
+    const bodyContent = fullRaw.substring(firstSegmentBodyStart);
+    let candidates = this.findAllCandidates(bodyContent, snippet, 0);
+    candidates = candidates.map((c) => ({ ...c, start: c.start + firstSegmentBodyStart, end: c.end + firstSegmentBodyStart }));
+    if (candidates.length === 0) {
+      candidates = this.findCandidatesStripped(bodyContent, snippet, 0);
+      candidates = candidates.map((c) => ({ ...c, start: c.start + firstSegmentBodyStart, end: c.end + firstSegmentBodyStart }));
+    }
+    if (candidates.length > 0) {
+      const result = this.resolveCandidates(candidates, fullRaw, context, occurrenceIndex);
+      if (result) {
+        return this.mapVirtualToPhysical(result.start, result.end, virtual.segments);
+      }
+    }
+    return null;
+  }
+  async resolveVirtualContent(file, depth = 0, opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() }) {
+    if (depth > 5) {
+      return { text: "", segments: [] };
+    }
+    if (opContext.cache.has(file.path)) {
+      return opContext.cache.get(file.path);
+    }
+    if (opContext.visited.has(file.path)) {
+      return { text: "", segments: [] };
+    }
+    opContext.visited.add(file.path);
+    let raw = await this.app.vault.read(file);
+    let fmOffset = 0;
+    if (depth > 0 && raw.startsWith("---")) {
+      const originalLength = raw.length;
+      const secondDash = raw.indexOf("---", 3);
+      if (secondDash !== -1) {
+        raw = raw.substring(secondDash + 3);
+        while (raw.startsWith("\n") || raw.startsWith("\r")) {
+          raw = raw.substring(1);
+        }
+        fmOffset = originalLength - raw.length;
+      }
+    }
+    const cache = this.app.metadataCache.getFileCache(file);
+    const embeds = (cache == null ? void 0 : cache.embeds) || [];
+    const sortedEmbeds = [...embeds].sort((a, b) => a.position.start.offset - b.position.start.offset);
+    let virtualText = "";
+    const segments = [];
+    let lastOffset = 0;
+    for (const embed of sortedEmbeds) {
+      const adjustedStart = embed.position.start.offset - fmOffset;
+      const adjustedEnd = embed.position.end.offset - fmOffset;
+      if (adjustedStart < 0)
+        continue;
+      const preText = raw.substring(lastOffset, adjustedStart);
+      const segStart = virtualText.length;
+      virtualText += preText;
+      segments.push({
+        vStart: segStart,
+        vEnd: virtualText.length,
+        file,
+        pOffset: lastOffset + fmOffset
+      });
+      const targetFile = this.app.metadataCache.getFirstLinkpathDest(embed.link.split("#")[0], file.path);
+      if (targetFile) {
+        const subContext = { ...opContext, visited: new Set(opContext.visited) };
+        const subVirtual = await this.resolveVirtualContent(targetFile, depth + 1, subContext);
+        const embedStart = virtualText.length;
+        virtualText += subVirtual.text;
+        for (const subSeg of subVirtual.segments) {
+          segments.push({
+            vStart: subSeg.vStart + embedStart,
+            vEnd: subSeg.vEnd + embedStart,
+            file: subSeg.file,
+            pOffset: subSeg.pOffset
+          });
+        }
+      } else {
+        const embedText = raw.substring(adjustedStart, adjustedEnd);
+        const segStart2 = virtualText.length;
+        virtualText += embedText;
+        segments.push({
+          vStart: segStart2,
+          vEnd: virtualText.length,
+          file,
+          pOffset: adjustedStart + fmOffset
+        });
+      }
+      lastOffset = adjustedEnd;
+    }
+    const tailText = raw.substring(lastOffset);
+    const tailStart = virtualText.length;
+    virtualText += tailText;
+    segments.push({
+      vStart: tailStart,
+      vEnd: virtualText.length,
+      file,
+      pOffset: lastOffset + fmOffset
+    });
+    const result = { text: virtualText, segments };
+    opContext.cache.set(file.path, result);
+    return result;
+  }
+  mapVirtualToPhysical(vStart, vEnd, segments) {
+    const startSeg = segments.find((s) => vStart >= s.vStart && vStart < s.vEnd);
+    const endSeg = segments.find((s) => vEnd > s.vStart && vEnd <= s.vEnd);
+    if (!startSeg || !endSeg)
+      return null;
+    const pStart = startSeg.pOffset + (vStart - startSeg.vStart);
+    const pEnd = endSeg.pOffset + (vEnd - endSeg.vStart);
+    return {
+      file: startSeg.file,
+      start: pStart,
+      end: pEnd,
+      raw: ""
+    };
+  }
+  resolveCandidates(candidates, raw, context, occurrenceIndex) {
     if (candidates.length === 0)
       return null;
     if (context) {
@@ -433,19 +556,72 @@ var SelectionLogic = class {
     }
     return { raw, start: candidates[0].start, end: candidates[0].end };
   }
-  createFlexiblePattern(escapedSnippet) {
-    let pattern = escapedSnippet.replace(/\\\[\d+(?:-\d+)?\\\]/g, "\\s*");
-    pattern = pattern.replace(/["“”]/g, '["\u201C\u201D]');
-    pattern = pattern.replace(/['‘’]/g, "['\u2018\u2019]");
-    pattern = pattern.replace(/[\-–—]/g, "[\\-\u2013\u2014]");
-    pattern = pattern.replace(/(\\\.\\\.\\\.|…)/g, "(\\\\.{3}|\u2026)");
-    pattern = pattern.replace(/\s+/g, "\\s*(?:(?:[>\\*\\-\\+]|\\d+\\.)(?: \\[[ xX]\\])?\\s*)*");
-    return pattern;
+  createFlexiblePattern(snippet) {
+    const gapPattern = "[\\s\\u21a9\\u21b5\\ufe0e\\ufe0f\\d\\.\\[\\](){}\\^:>\\*\\+\\#\\u00a0_~=\\-\\|]";
+    let parts = [];
+    for (let i = 0; i < snippet.length; i++) {
+      const char = snippet[i];
+      if (char.match(/\s/)) {
+        if (parts.length > 0 && parts[parts.length - 1].includes(gapPattern))
+          continue;
+        parts.push(`(?:${gapPattern})+?`);
+      } else {
+        parts.push(this.escapeRegex(char));
+        if (i < snippet.length - 1) {
+          parts.push(`(?:${gapPattern})*?`);
+        }
+      }
+    }
+    const pattern = parts.join("");
+    return `(?:${gapPattern})*?${pattern}`;
   }
-  findAllCandidates(text, snippet) {
-    const escaped = snippet.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = this.createFlexiblePattern(escaped);
-    const regex = new RegExp(pattern, "g");
+  stripBrowserJunk(text) {
+    if (!text)
+      return text;
+    return text.replace(/[\u21a9\u21b5\ufe0e\ufe0f]+/g, " ").replace(/[\u00a0\s]+/g, " ").replace(/\[(?:[0-9-]+|[a-zA-Z?]+)\](?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+  }
+  findAllCandidates(text, snippet, bodyStart = 0) {
+    const cleanSnippet = snippet.trim();
+    if (!cleanSnippet)
+      return [];
+    if (cleanSnippet.length > 800) {
+      const startAnchor = cleanSnippet.substring(0, 150);
+      const endAnchor = cleanSnippet.substring(cleanSnippet.length - 150);
+      const startP = this.createFlexiblePattern(startAnchor);
+      const startRegex = new RegExp(startP, "g");
+      const endRegex = new RegExp(this.createFlexiblePattern(endAnchor), "g");
+      const startMatches = [];
+      const endMatches = [];
+      let m;
+      while ((m = startRegex.exec(text)) !== null) {
+        if (m.index >= bodyStart)
+          startMatches.push(m);
+      }
+      while ((m = endRegex.exec(text)) !== null) {
+        if (m.index >= bodyStart)
+          endMatches.push(m);
+      }
+      if (startMatches.length > 0 && endMatches.length > 0) {
+        for (const startM of startMatches) {
+          const bestEnd = endMatches.find((e) => e.index > startM.index && e.index - startM.index < cleanSnippet.length * 2);
+          if (bestEnd) {
+            return [{
+              start: startM.index,
+              end: bestEnd.index + bestEnd[0].length,
+              text: text.substring(startM.index, bestEnd.index + bestEnd[0].length)
+            }];
+          }
+        }
+      }
+    }
+    const pattern = this.createFlexiblePattern(cleanSnippet);
+    let regex;
+    try {
+      regex = new RegExp(pattern, "g");
+    } catch (e) {
+      console.error("INVALID REGEX PATTERN:", pattern);
+      throw e;
+    }
     const candidates = [];
     let match;
     while ((match = regex.exec(text)) !== null) {
@@ -457,7 +633,10 @@ var SelectionLogic = class {
     }
     return candidates;
   }
-  findCandidatesStripped(text, snippet) {
+  escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  findCandidatesStripped(text, snippet, bodyStart = 0) {
     const map = [];
     let strippedRaw = "";
     const isFormattingMarker = (str, pos) => {
@@ -493,41 +672,52 @@ var SelectionLogic = class {
       }
     };
     const tokenRegex = new RegExp([
-      // Group 1: Obsidian embed ![[...]]
+      // Group 1: Fenced code block ```...``` (must come before inline code)
+      // Uses [\s\S]*? to match across newlines. The fence can have an optional language tag.
+      /(`{3}[^\n]*\n[\s\S]*?`{3})/.source,
+      // Group 2: Obsidian embed ![[...]]
       /(!\[\[(?:[^\]]+)\]\])/.source,
-      // Group 2: Image with reference ![alt][ref]
+      // Group 3: Image with reference ![alt][ref]
       /(!\[(?:[^\]]*)\]\[(?:[^\]]*)\])/.source,
-      // Group 3: Image with URL ![alt](url) or ![alt](url "title")
+      // Group 4: Image with URL ![alt](url) or ![alt](url "title")
       /(!\[(?:[^\]]*)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
-      // Group 4: Reference-style link [text][ref] (ensure it's not a footnote [^id])
+      // Group 5: Reference-style link [text][ref] (ensure it's not a footnote [^id])
       /(\[(?!\^)(?:[^\]]+)\]\[(?:[^\]]*)\])/.source,
-      // Group 5: Markdown link [text](url) or [text](url "title") (ensure it's not a footnote [^id])
+      // Group 6: Markdown link [text](url) or [text](url "title") (ensure it's not a footnote [^id])
       /(\[(?!\^)(?:[^\]]+)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
-      // Group 6: Wiki link [[...]]
+      // Group 7: Wiki link [[...]]
       /(\[\[(?:[^\]]+)\]\])/.source,
-      // Group 7: Footnote reference [^id]
-      /(\[\^[^\]]+\])/.source,
-      // Group 8: Block math $$...$$
+      // Group 8: Footnote reference [^id] (optionally including colon/space for definitions)
+      /(\[\^[^\]]+\]:?\s?)/.source,
+      // Group 9: Block math $$...$$
       /(\$\$[^$]+\$\$)/.source,
-      // Group 9: Inline math $...$  (non-greedy, no spaces around)
+      // Group 10: Inline math $...$  (non-greedy, no spaces around)
       /(\$(?:[^$\s]|[^$\s][^$]*[^$\s])\$)/.source,
-      // Group 10: Obsidian comment %%...%%
+      // Group 11: Obsidian comment %%...%%
       /(%%[^%]*%%)/.source,
-      // Group 11: Inline code `...`
+      // Group 12: Inline code `...`
       /(`[^`]+`)/.source,
-      // Group 12: Autolink <https://...> or <email@...>
+      // Group 13: Autolink <https://...> or <email@...>
       /(<(?:https?:\/\/[^>]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>)/.source,
-      // Group 13: HTML tag <tag> or </tag>
+      // Group 14: HTML tag <tag> or </tag>
       /(<\/?[a-zA-Z][^>]*>)/.source,
-      // Group 14: Escaped character \X
+      // Group 15: Escaped character \X
       /(\\[*_\[\](){}#>+\-.!`~=|\\])/.source,
-      // Group 15: Triple formatting ***
+      // Group 16: Triple formatting ***
       /(\*\*\*)/.source,
-      // Group 16: Double formatting ** ~~ ==
+      // Group 17: Double formatting ** ~~ ==
       /(\*\*|~~|==)/.source,
-      // Group 17: Single formatting * _
-      /(\*|_)/.source
-    ].join("|"), "g");
+      // Group 18: Single formatting * _
+      /(\*|_)/.source,
+      // Group 19: Callout marker (header or continuation line)
+      /(^[ \t]*>[ \t]?(?:\[![^\]]+\][ \t]?)?)/.source,
+      // Group 20: Block ID ^block-id
+      /([ \t]\^[a-zA-Z0-9-]+(?=\s|$))/.source,
+      // Group 21: Table Separator Row |---|
+      /(\|[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|)/.source,
+      // Group 22: Table Bar |
+      /(\|)/.source
+    ].join("|"), "gm");
     let lastIndex = 0;
     let match;
     while ((match = tokenRegex.exec(text)) !== null) {
@@ -538,6 +728,14 @@ var SelectionLogic = class {
       const fullMatch = match[0];
       const matchStart = match.index;
       if (match[1]) {
+        const firstNewline = fullMatch.indexOf("\n");
+        if (firstNewline !== -1) {
+          const codeStart = matchStart + firstNewline + 1;
+          const closingFence = fullMatch.lastIndexOf("```");
+          const codeEnd = closingFence !== -1 ? matchStart + closingFence : matchStart + fullMatch.length;
+          addRawText(codeStart, codeEnd);
+        }
+      } else if (match[2]) {
         const inner = fullMatch.substring(3, fullMatch.length - 2);
         const pipeIndex = inner.indexOf("|");
         if (pipeIndex !== -1) {
@@ -549,35 +747,35 @@ var SelectionLogic = class {
           const visibleEnd = matchStart + fullMatch.length - 2;
           extractVisibleText(visibleStart, visibleEnd);
         }
-      } else if (match[2]) {
-        const closingBracket = fullMatch.indexOf("][");
-        if (closingBracket !== -1) {
-          const altStart = matchStart + 2;
-          const altEnd = matchStart + closingBracket;
-          extractVisibleText(altStart, altEnd);
-        }
       } else if (match[3]) {
-        const closingBracket = fullMatch.indexOf("](");
+        const closingBracket = fullMatch.indexOf("][");
         if (closingBracket !== -1) {
           const altStart = matchStart + 2;
           const altEnd = matchStart + closingBracket;
           extractVisibleText(altStart, altEnd);
         }
       } else if (match[4]) {
+        const closingBracket = fullMatch.indexOf("](");
+        if (closingBracket !== -1) {
+          const altStart = matchStart + 2;
+          const altEnd = matchStart + closingBracket;
+          extractVisibleText(altStart, altEnd);
+        }
+      } else if (match[5]) {
         const closingBracket = fullMatch.indexOf("][");
         if (closingBracket !== -1) {
           const textStart = matchStart + 1;
           const textEnd = matchStart + closingBracket;
           extractVisibleText(textStart, textEnd);
         }
-      } else if (match[5]) {
+      } else if (match[6]) {
         const closingBracket = fullMatch.indexOf("](");
         if (closingBracket !== -1) {
           const textStart = matchStart + 1;
           const textEnd = matchStart + closingBracket;
           extractVisibleText(textStart, textEnd);
         }
-      } else if (match[6]) {
+      } else if (match[7]) {
         const inner = fullMatch.substring(2, fullMatch.length - 2);
         const pipeIndex = inner.indexOf("|");
         if (pipeIndex !== -1) {
@@ -589,30 +787,34 @@ var SelectionLogic = class {
           const visibleEnd = matchStart + fullMatch.length - 2;
           extractVisibleText(visibleStart, visibleEnd);
         }
-      } else if (match[7]) {
       } else if (match[8]) {
+      } else if (match[9]) {
         const mathStart = matchStart + 2;
         const mathEnd = matchStart + fullMatch.length - 2;
         addRawText(mathStart, mathEnd);
-      } else if (match[9]) {
+      } else if (match[10]) {
         const mathStart = matchStart + 1;
         const mathEnd = matchStart + fullMatch.length - 1;
         addRawText(mathStart, mathEnd);
-      } else if (match[10]) {
       } else if (match[11]) {
+      } else if (match[12]) {
         const codeStart = matchStart + 1;
         const codeEnd = matchStart + fullMatch.length - 1;
         addRawText(codeStart, codeEnd);
-      } else if (match[12]) {
+      } else if (match[13]) {
         const urlStart = matchStart + 1;
         const urlEnd = matchStart + fullMatch.length - 1;
         addRawText(urlStart, urlEnd);
-      } else if (match[13]) {
       } else if (match[14]) {
+      } else if (match[15]) {
         const charPos = matchStart + 1;
         map.push(charPos);
         strippedRaw += text[charPos];
-      } else if (match[15] || match[16] || match[17]) {
+      } else if (match[16] || match[17] || match[18]) {
+      } else if (match[19]) {
+      } else if (match[20]) {
+      } else if (match[21]) {
+      } else if (match[22]) {
       }
       lastIndex = tokenRegex.lastIndex;
     }
@@ -620,8 +822,7 @@ var SelectionLogic = class {
       map.push(i);
       strippedRaw += text[i];
     }
-    const escaped = snippet.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = this.createFlexiblePattern(escaped);
+    const pattern = this.createFlexiblePattern(snippet.trim());
     const regex = new RegExp(pattern, "g");
     const candidates = [];
     let strippedMatch;
@@ -1075,7 +1276,10 @@ var DEFAULT_SETTINGS = {
   // NEW: Navigator
   showNavigatorButton: true,
   // NEW: Tooltips (disabled by default)
-  showTooltips: false
+  showTooltips: false,
+  // NEW: Frontmatter Auto-Tag
+  enableFrontmatterTag: false,
+  frontmatterTag: "resaltados"
 };
 var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
   async onload() {
@@ -1357,13 +1561,15 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
     }
+    const targetFile = result.file;
+    await this.saveUndoState(targetFile);
     let mode = "highlight";
     let payload = "";
     if (this.settings.enableColorHighlighting && this.settings.highlightColor) {
       mode = "color";
       payload = this.settings.highlightColor;
     }
-    await this.applyMarkdownModification(view.file, result.raw, result.start, result.end, mode, payload);
+    await this.applyMarkdownModification(targetFile, "", result.start, result.end, mode, payload);
     this.restoreScroll(view, scrollPos);
     sel == null ? void 0 : sel.removeAllRanges();
     if (this.settings.enableHaptics && import_obsidian5.Platform.isMobile) {
@@ -1395,12 +1601,14 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
     }
+    const targetFile = result.file;
+    await this.saveUndoState(targetFile);
     new TagSuggestModal(this, async (tag) => {
       var _a;
       if (tag && this.settings.enableSmartTagSuggestions) {
         this.addRecentTag(tag);
       }
-      await this.applyMarkdownModification(view.file, result.raw, result.start, result.end, "tag", tag);
+      await this.applyMarkdownModification(targetFile, "", result.start, result.end, "tag", tag);
       this.restoreScroll(view, scrollPos);
       (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
     }).open();
@@ -1434,12 +1642,12 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
     }
+    const targetFile = result.file;
+    await this.saveUndoState(targetFile);
     new AnnotationModal(this.app, async (comment) => {
       var _a;
-      if (!comment.trim())
-        return;
-      await this.saveUndoState(view.file);
-      await this.applyAnnotation(view.file, result.raw, result.start, result.end, comment);
+      const currentRaw = await this.app.vault.read(targetFile);
+      await this.applyAnnotation(targetFile, currentRaw, result.start, result.end, comment);
       this.restoreScroll(view, scrollPos);
       (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
       new import_obsidian5.Notice("Annotation added!");
@@ -1447,6 +1655,9 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
   }
   // Apply annotation as footnote
   async applyAnnotation(file, raw, start, end, comment) {
+    if (!raw) {
+      raw = await this.app.vault.read(file);
+    }
     const footnotePattern = /\[\^(\d+)\]/g;
     let maxNumber = 0;
     let match;
@@ -1483,7 +1694,9 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
     }
-    await this.applyMarkdownModification(view.file, result.raw, result.start, result.end, "remove");
+    const targetFile = result.file;
+    await this.saveUndoState(targetFile);
+    await this.applyMarkdownModification(targetFile, "", result.start, result.end, "remove");
     new import_obsidian5.Notice("Highlighting removed.");
     this.restoreScroll(view, scrollPos);
     sel == null ? void 0 : sel.removeAllRanges();
@@ -1579,16 +1792,29 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
   async applyMarkdownModification(file, raw, start, end, mode, payload = "", autoTag = "") {
+    if (!raw) {
+      raw = await this.app.vault.read(file);
+    }
     let expandedStart = start;
     let expandedEnd = end;
+    let bodyStart = 0;
+    if (raw.startsWith("---")) {
+      const secondDash = raw.indexOf("---", 3);
+      if (secondDash !== -1) {
+        bodyStart = secondDash + 3;
+      }
+    }
     let expanded = true;
     while (expanded) {
       expanded = false;
       const preceding = raw.substring(0, expandedStart);
-      const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]|\[)$/);
-      if (matchBack) {
-        expandedStart -= matchBack[0].length;
-        expanded = true;
+      const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]:?\s?|\[)$/);
+      if (matchBack && expandedStart > bodyStart) {
+        const newStart = expandedStart - matchBack[0].length;
+        if (newStart >= bodyStart) {
+          expandedStart = newStart;
+          expanded = true;
+        }
       }
       const following = raw.substring(expandedEnd);
       const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\)|\[\^[^\]]+\])/);
@@ -1598,32 +1824,31 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       }
     }
     const selectedText = raw.substring(expandedStart, expandedEnd);
-    const paragraphs = selectedText.split(/\n\s*\n/);
+    const paragraphs = selectedText.split(/\r?\n\s*\r?\n/);
     let fullTag = "";
+    const sanitizeTag = (t) => t.trim().replace(/^#/, "").replace(/\s+/g, "_");
     if (mode === "tag" && payload) {
-      const prefix = this.settings.defaultTagPrefix ? this.settings.defaultTagPrefix.trim() : "";
-      const cleanPayload = payload.startsWith("#") ? payload.substring(1) : payload;
+      const prefix = this.settings.defaultTagPrefix ? sanitizeTag(this.settings.defaultTagPrefix) : "";
+      const cleanPayload = payload.split(/\s+/).map(sanitizeTag).filter((t) => t).map((t) => `#${t}`).join(" ");
       if (prefix) {
-        const cleanPrefix = prefix.startsWith("#") ? prefix.substring(1) : prefix;
-        fullTag = `#${cleanPrefix} #${cleanPayload}`;
+        fullTag = `#${sanitizeTag(prefix)} ${cleanPayload}`;
       } else {
-        fullTag = `#${cleanPayload}`;
+        fullTag = cleanPayload;
       }
     } else if ((mode === "highlight" || mode === "color") && this.settings.defaultTagPrefix) {
-      const autoTagSetting = this.settings.defaultTagPrefix.trim();
+      const autoTagSetting = sanitizeTag(this.settings.defaultTagPrefix);
       if (autoTagSetting) {
-        const cleanTag = autoTagSetting.startsWith("#") ? autoTagSetting.substring(1) : autoTagSetting;
-        fullTag = `#${cleanTag}`;
+        fullTag = `#${autoTagSetting}`;
       }
     }
     if (autoTag) {
-      const cleanAutoTag = autoTag.startsWith("#") ? autoTag : `#${autoTag}`;
-      fullTag = fullTag ? `${fullTag} ${cleanAutoTag}` : cleanAutoTag;
+      const cleanAutoTag = sanitizeTag(autoTag);
+      fullTag = fullTag ? `${fullTag} #${cleanAutoTag}` : `#${cleanAutoTag}`;
     }
     const processedParagraphs = paragraphs.map((paragraph) => {
       if (!paragraph.trim())
         return paragraph;
-      const lines = paragraph.split("\n");
+      const lines = paragraph.split(/\r?\n/);
       const processedLines = lines.map((line) => {
         let cleanLine = line.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, "");
         if (mode === "highlight" || mode === "color" || mode === "tag") {
@@ -1664,9 +1889,36 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       });
       return processedLines.join("\n");
     });
-    const replaceBlock = processedParagraphs.join("\n\n");
+    const newline = raw.includes("\r\n") ? "\r\n" : "\n";
+    const replaceBlock = processedParagraphs.join(newline + newline);
     const newContent = raw.substring(0, expandedStart) + replaceBlock + raw.substring(expandedEnd);
     await this.app.vault.modify(file, newContent);
+    if (mode !== "remove" && this.settings.enableFrontmatterTag && this.settings.frontmatterTag) {
+      const targetTag = this.settings.frontmatterTag.trim().replace(/\s+/g, "_").replace(/^#/, "");
+      if (targetTag) {
+        try {
+          await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+            if (frontmatter.tags === void 0 || frontmatter.tags === null) {
+              frontmatter.tags = [targetTag];
+              return;
+            }
+            if (Array.isArray(frontmatter.tags)) {
+              if (!frontmatter.tags.includes(targetTag)) {
+                frontmatter.tags.push(targetTag);
+              }
+            } else if (typeof frontmatter.tags === "string") {
+              const existingTags = frontmatter.tags.includes(",") ? frontmatter.tags.split(",").map((t) => t.trim()) : frontmatter.tags.split(/\s+/).map((t) => t.trim());
+              const cleanTags = existingTags.filter((t) => t.replace(/^#/, "") !== targetTag && t !== "");
+              if (cleanTags.length === existingTags.length) {
+                frontmatter.tags = [...cleanTags, targetTag];
+              }
+            }
+          });
+        } catch (e) {
+          console.error("Reader Highlighter Tags: Failed to inject frontmatter tag.", e);
+        }
+      }
+    }
   }
   restoreScroll(view, pos) {
     requestAnimationFrame(() => {
@@ -1718,7 +1970,7 @@ var ReadingHighlighterSettingTab = class extends import_obsidian5.PluginSettingT
     }
     containerEl.createEl("h3", { text: "Tags" });
     new import_obsidian5.Setting(containerEl).setName("Default Tag Prefix").setDesc("Automatically add this tag to every highlight (e.g., 'book').").addText((text) => text.setPlaceholder("book").setValue(this.plugin.settings.defaultTagPrefix).onChange(async (value) => {
-      this.plugin.settings.defaultTagPrefix = value;
+      this.plugin.settings.defaultTagPrefix = value.replace(/\s+/g, "_").replace(/^#/, "");
       await this.plugin.saveSettings();
     }));
     new import_obsidian5.Setting(containerEl).setName("Smart Tag Suggestions").setDesc("Suggest tags based on recent usage, folder, and frontmatter.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableSmartTagSuggestions).onChange(async (value) => {
@@ -1772,5 +2024,17 @@ var ReadingHighlighterSettingTab = class extends import_obsidian5.PluginSettingT
       this.plugin.settings.showTooltips = value;
       await this.plugin.saveSettings();
     }));
+    containerEl.createEl("h3", { text: "Frontmatter Integration" });
+    new import_obsidian5.Setting(containerEl).setName("Auto-tag highlight in Frontmatter").setDesc("Automatically inject a specific tag into the note's frontmatter whenever you highlight text.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableFrontmatterTag).onChange(async (value) => {
+      this.plugin.settings.enableFrontmatterTag = value;
+      await this.plugin.saveSettings();
+      this.display();
+    }));
+    if (this.plugin.settings.enableFrontmatterTag) {
+      new import_obsidian5.Setting(containerEl).setName("Frontmatter highlight tag").setDesc("The tag to add (e.g. 'resaltados'). Do not include the # symbol.").addText((text) => text.setPlaceholder("resaltados").setValue(this.plugin.settings.frontmatterTag).onChange(async (value) => {
+        this.plugin.settings.frontmatterTag = value.replace(/^#/, "");
+        await this.plugin.saveSettings();
+      }));
+    }
   }
 };
