@@ -1823,6 +1823,20 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
         expanded = true;
       }
     }
+    // FOOTNOTE DEFINITION GUARD: After expansion, advance expandedStart past any
+    // [^id]: label that sits at the beginning of the line.
+    //
+    // locateSelection returns the raw [^id]: position as start. The expansion loop
+    // above won't pull further back (preceding char is \n, no regex match), so
+    // expandedStart is still at the '['. We now shift it past the label so the
+    // final == lands after the colon:
+    //
+    //   Before: ==[^15]: «text»==   ← breaks the footnote parser
+    //   After:  [^15]: ==«text»==   ← correct
+    //
+    // In-body references like [^15] are unaffected: they are never at column 0
+    // with a colon, so adjustHighlightBounds returns them unchanged.
+    ({ start: expandedStart, end: expandedEnd } = this.logic.adjustHighlightBounds(raw, expandedStart, expandedEnd));
     const selectedText = raw.substring(expandedStart, expandedEnd);
     const paragraphs = selectedText.split(/\r?\n\s*\r?\n/);
     let fullTag = "";
