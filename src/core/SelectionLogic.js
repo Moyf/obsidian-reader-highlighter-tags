@@ -264,8 +264,17 @@ export class SelectionLogic {
         
         const pattern = parts.join('');
         
-        // Final pattern starts with optional markers/whitespace (Atomic)
-        return `(?:${gapPattern})*?${pattern}`;
+        // Final pattern starts with optional MARKDOWN FORMATTING markers only.
+        // IMPORTANT: We intentionally use a narrower set here than gapPattern.
+        // gapPattern (used between characters) includes \s and \. which is fine
+        // mid-match, but a leading gap that includes those characters can consume
+        // the period + newlines at the end of a preceding paragraph, causing the
+        // match to start there instead of at the actual snippet start.
+        // This leading gap must only cover invisible inline formatting markers
+        // (**, *, _, ~~, ==, >, #, etc.) that precede the first visible character
+        // in raw Markdown but are absent from the user's rendered selection.
+        const leadingMarkdownOnly = '[\\*_~=#>\\+\\|\\u21a9\\u21b5\\ufe0e\\ufe0f]';
+        return `(?:${leadingMarkdownOnly})*?${pattern}`;
     }
 
     stripBrowserJunk(text) {
