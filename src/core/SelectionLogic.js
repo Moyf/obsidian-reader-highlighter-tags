@@ -1,16 +1,16 @@
 const BLOCK_LEVEL_TAGS_FOR_SPLIT = new Set([
-    "P",
-    "LI",
-    "BLOCKQUOTE",
-    "PRE",
-    "H1",
-    "H2",
-    "H3",
-    "H4",
-    "H5",
-    "H6",
-    "TD",
-    "TH",
+  "P",
+  "LI",
+  "BLOCKQUOTE",
+  "PRE",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "TD",
+  "TH",
 ]);
 
 const GAP_PATTERN = "[\\s\\u00a0\\u1680\\u2000-\\u200b\\u202f\\u205f\\u3000\\u21a9\\u21b5\\ufe0e\\ufe0f]";
@@ -32,7 +32,7 @@ export var SelectionLogic = class {
     }
 
     const activeFile = view.file;
-    const opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
+    const opContext = { cache: new Map(), visited: new Set() };
     const virtual = await this.resolveVirtualContent(activeFile, 0, opContext);
     const fullRaw = virtual.text;
 
@@ -78,7 +78,7 @@ export var SelectionLogic = class {
     return this.mapVirtualToPhysical(result.start, result.end, virtual.segments);
   }
 
-  async resolveVirtualContent(file, depth = 0, opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() }) {
+  async resolveVirtualContent(file, depth = 0, opContext = { cache: new Map(), visited: new Set() }) {
     if (depth > 5) {
       return { text: "", segments: [] };
     }
@@ -104,7 +104,7 @@ export var SelectionLogic = class {
     }
     const cache = this.app.metadataCache.getFileCache(file);
     const embeds = (cache == null ? void 0 : cache.embeds) || [];
-    const sorted embeds = [...embeds].sort((a, b) => a.position.start.offset - b.position.start.offset);
+    const sortedEmbeds = [...embeds].sort((a, b) => a.position.start.offset - b.position.start.offset);
     let virtualText = "";
     const segments = [];
     let lastOffset = 0;
@@ -279,6 +279,9 @@ export var SelectionLogic = class {
       .replace(/[‐‑‒–—―]/g, "-")
       .replace(/[“”«»]/g, "\"")
       .replace(/[‘’]/g, "'")
+      // FIX: Only strip markers if they are definition prefixes (e.g. [^1]:) 
+      // or if the user ONLY highlighted the footnote marker itself.
+      // This preserves mid-paragraph markers so the matcher can find the text.
       .replace(/(^\s*\[\^[^\]]+\]:?|^\s*\[\^[^\]]+\]\s*$)/gm, "")
       .replace(/\s+/g, " ")
       .trim();
@@ -427,8 +430,8 @@ export var SelectionLogic = class {
       /(!\[\[(?:[^\]]+)\]\])/.source,
       /(!\[(?:[^\]]*)\]\[(?:[^\]]*)\])/.source,
       /(!\[(?:[^\]]*)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
-       /(\[(?!\^)(?:[^\]]+)\]\[(?:[^\]]*)\])/.source,
-       /(\[(?!\^)(?:[^\]]+)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
+      /(\[(?!\^)(?:[^\]]+)\]\[(?:[^\]]*)\])/.source,
+      /(\[(?!\^)(?:[^\]]+)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
       /(\[\[(?:[^\]]+)\]\])/.source,
       /(\[\^[^\]]+\]:?[ \t]?)/.source,
       /(\$\$[^$]+\$\$)/.source,
@@ -445,7 +448,7 @@ export var SelectionLogic = class {
       /([ \t]\^[a-zA-Z0-9-]+(?=\s|$))/.source,
       /(\|[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|)/.source,
       /(\|)/.source,
-      /([ \u2013\u2014\u201c\u201d\u2018\u2019\u00ab\u00bb])/.source
+      /([\u2013\u2014\u201c\u201d\u2018\u2019\u00ab\u00bb])/.source
     ].join("|"), "gm");
     let lastIndex = 0;
     let match;
@@ -639,25 +642,33 @@ export var SelectionLogic = class {
     const indent = indentMatch ? indentMatch[0] : "";
     let remainder = line.substring(indent.length);
     let prefix = "";
-    const prefixPatterns = [
-      /^>\s*/,
-      /^#{1,6}\s+/,
-      /^-\s\[[ xX]\]\s+/,
-      /^[-*+]\s+/,
-      /^\d{1,3}[.)]\s+/,
-      /^\[\^[^\]]+\]:\s*/
-    ];
+    
+    // Check specifically for footnote definitions first
+    const footnoteDefMatch = remainder.match(/^\[\^[^\]]+\]:\s*/);
+    if (footnoteDefMatch) {
+      prefix = footnoteDefMatch[0];
+      remainder = remainder.substring(footnoteDefMatch[0].length);
+    } else {
+      // Otherwise check standard markdown prefixes
+      const prefixPatterns = [
+        /^>\s*/,
+        /^#{1,6}\s+/,
+        /^-\s\[[ xX]\]\s+/,
+        /^[-*+]\s+/,
+        /^\d{1,3}[.)]\s+/
+      ];
 
-    let matched = true;
-    while (matched && remainder) {
-      matched = false;
-      for (const pattern of prefixPatterns) {
-        const match = remainder.match(pattern);
-        if (match) {
-          prefix += match[0];
-          remainder = remainder.substring(match[0].length);
-          matched = true;
-          break;
+      let matched = true;
+      while (matched && remainder) {
+        matched = false;
+        for (const pattern of prefixPatterns) {
+          const match = remainder.match(pattern);
+          if (match) {
+            prefix += match[0];
+            remainder = remainder.substring(match[0].length);
+            matched = true;
+            break;
+          }
         }
       }
     }
