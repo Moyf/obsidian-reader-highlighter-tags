@@ -104,7 +104,7 @@ export var SelectionLogic = class {
     }
     const cache = this.app.metadataCache.getFileCache(file);
     const embeds = (cache == null ? void 0 : cache.embeds) || [];
-    const sortedEmbeds = [...embeds].sort((a, b) => a.position.start.offset - b.position.start.offset);
+    const sorted embeds = [...embeds].sort((a, b) => a.position.start.offset - b.position.start.offset);
     let virtualText = "";
     const segments = [];
     let lastOffset = 0;
@@ -279,7 +279,7 @@ export var SelectionLogic = class {
       .replace(/[‐‑‒–—―]/g, "-")
       .replace(/[“”«»]/g, "\"")
       .replace(/[‘’]/g, "'")
-      .replace(/\[\^?(?:[0-9-]+|[a-zA-Z?]+)\]/g, "")
+      .replace(/(^\s*\[\^[^\]]+\]:?|^\s*\[\^[^\]]+\]\s*$)/gm, "")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -427,8 +427,8 @@ export var SelectionLogic = class {
       /(!\[\[(?:[^\]]+)\]\])/.source,
       /(!\[(?:[^\]]*)\]\[(?:[^\]]*)\])/.source,
       /(!\[(?:[^\]]*)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
-      /(\[(?!\^)(?:[^\]]+)\]\[(?:[^\]]*)\])/.source,
-      /(\[(?!\^)(?:[^\]]+)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
+       /(\[(?!\^)(?:[^\]]+)\]\[(?:[^\]]*)\])/.source,
+       /(\[(?!\^)(?:[^\]]+)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
       /(\[\[(?:[^\]]+)\]\])/.source,
       /(\[\^[^\]]+\]:?[ \t]?)/.source,
       /(\$\$[^$]+\$\$)/.source,
@@ -445,7 +445,7 @@ export var SelectionLogic = class {
       /([ \t]\^[a-zA-Z0-9-]+(?=\s|$))/.source,
       /(\|[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|)/.source,
       /(\|)/.source,
-      /([\u2013\u2014\u201c\u201d\u2018\u2019\u00ab\u00bb])/.source
+      /([ \u2013\u2014\u201c\u201d\u2018\u2019\u00ab\u00bb])/.source
     ].join("|"), "gm");
     let lastIndex = 0;
     let match;
@@ -483,18 +483,7 @@ export var SelectionLogic = class {
           const visibleEnd = matchStart + fullMatch.length - 2;
           extractVisibleText(visibleStart, visibleEnd);
         } else if (match[8]) {
-          // Footnote token: [^N] (inline ref) or [^N]: (definition)
-          // For definitions like [^61]:, skip entirely — the prefix should be invisible.
-          // For inline refs like [^8], emit the label (e.g. "8") into strippedRaw because
-          // Obsidian's reading view renders [^8] as superscript "8", so the user's snippet
-          // contains that digit and the stripped file text must contain it too for matching.
-          if (!fullMatch.includes(':')) {
-            const innerStart = matchStart + 2; // skip '[^'
-            const closeBracket = fullMatch.indexOf(']');
-            if (closeBracket > 2) {
-              addRawText(innerStart, matchStart + closeBracket);
-            }
-          }
+          void 0;
         } else if (match[9] || match[10]) {
           const mathStart = matchStart + (match[9] ? 2 : 1);
           const mathEnd = matchStart + fullMatch.length - (match[9] ? 2 : 1);
