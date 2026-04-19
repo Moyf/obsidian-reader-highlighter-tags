@@ -1,5 +1,5 @@
 // src/core/SelectionLogic.js
-var SelectionLogic = class {
+export var SelectionLogic = class {
   constructor(app) {
     this.app = app;
   }
