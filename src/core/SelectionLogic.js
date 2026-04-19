@@ -339,8 +339,8 @@ export class SelectionLogic {
         try {
             regex = new RegExp(pattern, 'g');
         } catch (e) {
-            console.error("INVALID REGEX PATTERN:", pattern);
-            throw e;
+            console.error("INVALID REGEX PATTERN:", pattern, e);
+            return [];
         }
         const candidates = [];
 
