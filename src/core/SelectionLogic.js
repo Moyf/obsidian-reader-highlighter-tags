@@ -1,4 +1,3 @@
-// src/core/SelectionLogic.js
 const BLOCK_LEVEL_TAGS_FOR_SPLIT = new Set([
     "P",
     "LI",
@@ -13,10 +12,11 @@ const BLOCK_LEVEL_TAGS_FOR_SPLIT = new Set([
     "TD",
     "TH",
 ]);
+
 const GAP_PATTERN = "[\\s\\u00a0\\u1680\\u2000-\\u200b\\u202f\\u205f\\u3000\\u21a9\\u21b5\\ufe0e\\ufe0f]";
 const INLINE_DECORATION_PATTERN = "(?:<mark[^>]*>|<\\/mark>|==|\\*\\*|~~|\\*|_|`)";
 const OPTIONAL_MARKDOWN_LINE_PREFIX = "[ \\t]{0,3}(?:(?:>\\s*)*(?:#{1,6}[ \\t]+|-\\s\\[[ xX]\\][ \\t]+|[-*+][ \\t]+|\\d{1,3}[.)][ \\t]+|\\[\\^[^\\]]+\\]:[ \\t]*))?";
-const MARKDOWN_PREFIX_ONLY_RE = /^[ \t]*(?:(?:>\\s*)+|#{1,6}[ \t]*|-\\s\\[[ xX]\\][ \\t]*|[-*+][ \\t]*|\\d{1,3}[.)][ \\t]*|\\[\\^[^\]]+\\]:[ \\t]*)+$/;
+const MARKDOWN_PREFIX_ONLY_RE = /^[ \t]*(?:(?:>\s*)+|#{1,6}[ \t]*|-\s\[[ xX]\][ \t]*|[-*+][ \t]*|\d{1,3}[.)][ \t]*|\[\^[^\]]+\]:[ \t]*)+$/;
 const INLINE_DECORATION_RE = /<mark[^>]*>|<\/mark>|==|\*\*|~~|\*|_|`/g;
 
 export var SelectionLogic = class {
@@ -25,22 +25,17 @@ export var SelectionLogic = class {
     this.blockLevelTagsForSplit = BLOCK_LEVEL_TAGS_FOR_SPLIT;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // NEW HELPER: Only strips the [^xx]: prefix on footnote DEFINITIONS
-  // ─────────────────────────────────────────────────────────────
-  stripFootnoteDefinitionPrefix(line) {
-    return line.replace(/^\[\^[^\]]+\]:\s*/, "");
-  }
-
   async locateSelection(processedFile, view, selectionSnippet, context = null, occurrenceIndex = 0) {
     const snippet = this.stripBrowserJunk(selectionSnippet);
     if (!snippet) {
       return null;
     }
+
     const activeFile = view.file;
     const opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
     const virtual = await this.resolveVirtualContent(activeFile, 0, opContext);
     const fullRaw = virtual.text;
+
     let firstSegmentBodyStart = 0;
     if (fullRaw.startsWith("---")) {
       const secondDash = fullRaw.indexOf("---", 3);
@@ -51,26 +46,35 @@ export var SelectionLogic = class {
         }
       }
     }
+
     const bodyContent = fullRaw.substring(firstSegmentBodyStart);
     const selectionBlocks = this.splitSelectionBlocks(snippet);
+
     let candidates = selectionBlocks.length > 1 ? this.findBlockSequenceCandidates(bodyContent, selectionBlocks, 0) : [];
+
     if (candidates.length === 0) {
       candidates = this.findAllCandidates(bodyContent, snippet, 0);
     }
+
     if (candidates.length === 0) {
       candidates = this.findCandidatesStripped(bodyContent, snippet, 0);
     }
+
     if (candidates.length === 0) {
       candidates = this.findFuzzyCandidates(bodyContent, snippet, 0);
     }
+
     if (candidates.length === 0) {
       return null;
     }
+
     candidates = this.offsetCandidates(candidates, firstSegmentBodyStart);
+
     const result = this.resolveCandidates(candidates, fullRaw, context, occurrenceIndex);
     if (!result) {
       return null;
     }
+
     return this.mapVirtualToPhysical(result.start, result.end, virtual.segments);
   }
 
@@ -177,6 +181,7 @@ export var SelectionLogic = class {
   resolveCandidates(candidates, raw, context, occurrenceIndex) {
     if (candidates.length === 0)
       return null;
+
     if (context) {
       const cleanContext = context.replace(/\s+/g, " ").trim();
       candidates = candidates.map((cand) => {
@@ -184,17 +189,21 @@ export var SelectionLogic = class {
         const score = this.calculateSimilarity(sourceBlock, cleanContext);
         return { ...cand, score };
       });
+
       const bestScore = Math.max(...candidates.map((candidate) => candidate.score));
       const threshold = bestScore * 0.85;
       const validCandidates = candidates.filter((candidate) => candidate.score >= threshold);
+
       if (occurrenceIndex >= 0 && occurrenceIndex < validCandidates.length) {
         const chosen = validCandidates[occurrenceIndex];
         return { raw, start: chosen.start, end: chosen.end };
       }
+
       if (validCandidates.length > 0) {
         return { raw, start: validCandidates[0].start, end: validCandidates[0].end };
       }
     }
+
     return { raw, start: candidates[0].start, end: candidates[0].end };
   }
 
@@ -203,12 +212,14 @@ export var SelectionLogic = class {
     if (lines.length === 0) {
       return "";
     }
+
     const contentPatterns = lines.map((line) => this.createFlexibleLinePattern(line));
     const lineBridge = `(?:[ \\t]*(?:${INLINE_DECORATION_PATTERN}){0,3}[ \\t]*\\r?\\n(?:[ \\t>]*\\r?\\n){0,3})`;
     const joined = contentPatterns.map((pattern, index) => {
       const linePattern = `${OPTIONAL_MARKDOWN_LINE_PREFIX}${pattern}`;
       return index === 0 ? linePattern : `${lineBridge}${linePattern}`;
     }).join("");
+
     return joined;
   }
 
@@ -216,24 +227,29 @@ export var SelectionLogic = class {
     const normalizedLine = this.normalizeComparableText(line);
     const parts = [];
     let pendingGap = false;
+
     for (let i = 0; i < normalizedLine.length; i++) {
       const char = normalizedLine[i];
       if (/\s/.test(char)) {
         pendingGap = true;
         continue;
       }
+
       if (pendingGap && parts.length > 0) {
         parts.push(`(?:${GAP_PATTERN}|[-\u2010-\u2015]|"|'|[“”‘’«»]){1,3}`);
         pendingGap = false;
       }
+
       parts.push(this.getFlexibleCharPattern(char));
       if (i < normalizedLine.length - 1) {
         parts.push(`(?:${GAP_PATTERN}|[-\u2010-\u2015]|"|'|[“”‘’«»]|[\\*_~=]){0,3}`);
       }
     }
+
     if (parts.length === 0) {
       return "";
     }
+
     return parts.join("");
   }
 
@@ -250,13 +266,11 @@ export var SelectionLogic = class {
     return this.escapeRegex(char);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // FIXED stripBrowserJunk – removed destructive footnote removal
-  // ─────────────────────────────────────────────────────────────
   stripBrowserJunk(text) {
     if (!text) {
       return text;
     }
+
     return text.normalize("NFC")
       .replace(/#:~:text=[^&\s]+(?:&|$)?/g, "")
       .replace(/[\u200b-\u200d\ufeff]/g, "")
@@ -265,7 +279,7 @@ export var SelectionLogic = class {
       .replace(/[‐‑‒–—―]/g, "-")
       .replace(/[“”«»]/g, "\"")
       .replace(/[‘’]/g, "'")
-      // REMOVED: .replace(/\[\^?(?:[0-9-]+|[a-zA-Z?]+)\]/g, "")
+      .replace(/\[\^?(?:[0-9-]+|[a-zA-Z?]+)\]/g, "")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -281,10 +295,12 @@ export var SelectionLogic = class {
     if (!cleanSnippet) {
       return [];
     }
+
     const patternSnippet = this.stripUrlsForPatternMatch(cleanSnippet);
     if (!patternSnippet) {
       return [];
     }
+
     if (patternSnippet.length > 800) {
       const startAnchor = patternSnippet.substring(0, 150);
       const endAnchor = patternSnippet.substring(patternSnippet.length - 150);
@@ -335,10 +351,12 @@ export var SelectionLogic = class {
         }
       }
     }
+
     const pattern = this.createFlexiblePattern(patternSnippet);
     if (!pattern) {
       return [];
     }
+
     let regex;
     try {
       regex = new RegExp(pattern, "gmu");
@@ -346,6 +364,7 @@ export var SelectionLogic = class {
       console.error("INVALID REGEX PATTERN:", pattern);
       return [];
     }
+
     const candidates = [];
     let match;
     try {
@@ -360,6 +379,7 @@ export var SelectionLogic = class {
       console.warn("Regex execution failed in findAllCandidates (mobile backtracking limit):", e);
       return [];
     }
+
     return candidates;
   }
 
@@ -463,8 +483,13 @@ export var SelectionLogic = class {
           const visibleEnd = matchStart + fullMatch.length - 2;
           extractVisibleText(visibleStart, visibleEnd);
         } else if (match[8]) {
+          // Footnote token: [^N] (inline ref) or [^N]: (definition)
+          // For definitions like [^61]:, skip entirely — the prefix should be invisible.
+          // For inline refs like [^8], emit the label (e.g. "8") into strippedRaw because
+          // Obsidian's reading view renders [^8] as superscript "8", so the user's snippet
+          // contains that digit and the stripped file text must contain it too for matching.
           if (!fullMatch.includes(':')) {
-            const innerStart = matchStart + 2;
+            const innerStart = matchStart + 2; // skip '[^'
             const closeBracket = fullMatch.indexOf(']');
             if (closeBracket > 2) {
               addRawText(innerStart, matchStart + closeBracket);
@@ -532,16 +557,20 @@ export var SelectionLogic = class {
     if (selectionBlocks.length === 0) {
       return [];
     }
+
     const documentLines = this.createDocumentLineRecords(text);
     const candidates = [];
+
     for (let startIndex = 0; startIndex < documentLines.length; startIndex++) {
       const firstLine = documentLines[startIndex];
       if (firstLine.start < bodyStart || !this.lineMatches(firstLine.compare, selectionBlocks[0])) {
         continue;
       }
+
       let selectionIndex = 1;
       let docIndex = startIndex + 1;
       let lastMatch = startIndex;
+
       while (selectionIndex < selectionBlocks.length && docIndex < documentLines.length) {
         const candidateLine = documentLines[docIndex];
         if (this.lineMatches(candidateLine.compare, selectionBlocks[selectionIndex])) {
@@ -550,12 +579,15 @@ export var SelectionLogic = class {
           docIndex++;
           continue;
         }
+
         if (candidateLine.skippable) {
           docIndex++;
           continue;
         }
+
         break;
       }
+
       if (selectionIndex === selectionBlocks.length) {
         candidates.push({
           start: firstLine.start,
@@ -564,12 +596,14 @@ export var SelectionLogic = class {
         });
       }
     }
+
     return this.dedupeCandidates(candidates);
   }
 
   createDocumentLineRecords(text) {
     const lines = [];
     let offset = 0;
+
     while (offset <= text.length) {
       const nextBreak = text.indexOf("\n", offset);
       const end = nextBreak === -1 ? text.length : nextBreak;
@@ -582,11 +616,13 @@ export var SelectionLogic = class {
         compare,
         skippable: compare.length === 0 || MARKDOWN_PREFIX_ONLY_RE.test(rawLine.trimEnd())
       });
+
       if (nextBreak === -1) {
         break;
       }
       offset = nextBreak + 1;
     }
+
     return lines;
   }
 
@@ -596,13 +632,9 @@ export var SelectionLogic = class {
     return filterEmpty ? blocks.filter((line) => line.length > 0) : blocks;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // UPDATED: Uses the new footnote definition stripper
-  // ─────────────────────────────────────────────────────────────
   normalizeLineForCompare(line) {
     const strippedLine = line.replace(INLINE_DECORATION_RE, "");
-    const withoutFootnotePrefix = this.stripFootnoteDefinitionPrefix(strippedLine);
-    const parts = this.splitMarkdownLine(withoutFootnotePrefix);
+    const parts = this.splitMarkdownLine(strippedLine);
     return this.normalizeComparableText(parts.content);
   }
 
@@ -626,6 +658,7 @@ export var SelectionLogic = class {
       /^\d{1,3}[.)]\s+/,
       /^\[\^[^\]]+\]:\s*/
     ];
+
     let matched = true;
     while (matched && remainder) {
       matched = false;
@@ -639,6 +672,7 @@ export var SelectionLogic = class {
         }
       }
     }
+
     return { indent, prefix, content: remainder };
   }
 
@@ -652,11 +686,13 @@ export var SelectionLogic = class {
     if (source.includes(target) || target.includes(source)) {
       return true;
     }
+
     const fuzzySource = this.normalizeForFuzzySearch(source);
     const fuzzyTarget = this.normalizeForFuzzySearch(target);
     if (!fuzzySource || !fuzzyTarget) {
       return false;
     }
+
     return fuzzySource === fuzzyTarget || fuzzySource.includes(fuzzyTarget) || fuzzyTarget.includes(fuzzySource);
   }
 
@@ -665,10 +701,12 @@ export var SelectionLogic = class {
     if (!needle) {
       return [];
     }
+
     const { normalized, map } = this.buildFuzzyMap(text);
     if (!normalized) {
       return [];
     }
+
     const candidates = [];
     let fromIndex = 0;
     while (fromIndex < normalized.length) {
@@ -676,6 +714,7 @@ export var SelectionLogic = class {
       if (matchIndex === -1) {
         break;
       }
+
       const rawStart = map[matchIndex];
       const rawEnd = map[matchIndex + needle.length - 1] + 1;
       if (rawStart >= bodyStart) {
@@ -687,12 +726,14 @@ export var SelectionLogic = class {
       }
       fromIndex = matchIndex + 1;
     }
+
     return this.dedupeCandidates(candidates);
   }
 
   buildFuzzyMap(text) {
     let normalized = "";
     const map = [];
+
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
       if (/[\p{L}\p{N}]/u.test(char)) {
@@ -700,6 +741,7 @@ export var SelectionLogic = class {
         map.push(i);
       }
     }
+
     return { normalized, map };
   }
 
