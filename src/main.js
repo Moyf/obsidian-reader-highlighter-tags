@@ -150,6 +150,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         this.addCommand({
             id: "highlight-selection-reading",
             name: "Highlight selection (Reading View)",
+            hotkeys: [{ modifiers: ["Mod", "Shift"], key: "h" }],
             checkCallback: (checking) => {
                 const view = this.getActiveReadingView();
                 if (!view) return false;
@@ -163,6 +164,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         this.addCommand({
             id: "tag-selection",
             name: "Tag selection (Reading View)",
+            hotkeys: [{ modifiers: ["Mod", "Shift"], key: "t" }],
             checkCallback: (checking) => {
                 const view = this.getActiveReadingView();
                 if (!view) return false;
@@ -176,6 +178,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         this.addCommand({
             id: "annotate-selection",
             name: "Add annotation to selection (Reading View)",
+            hotkeys: [{ modifiers: ["Mod", "Shift"], key: "n" }],
             checkCallback: (checking) => {
                 const view = this.getActiveReadingView();
                 if (!view) return false;
@@ -273,6 +276,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
             this.addCommand({
                 id: `apply-color-${i + 1}`,
                 name: `Apply highlight color ${i + 1}`,
+                hotkeys: [{ modifiers: ["Mod", "Shift"], key: String(i + 1) }],
                 checkCallback: (checking) => {
                     if (!this.settings.enableColorPalette) return false;
                     const view = this.getActiveReadingView();

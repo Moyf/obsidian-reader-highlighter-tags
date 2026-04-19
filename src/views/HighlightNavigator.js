@@ -15,6 +15,7 @@ export class HighlightNavigatorView extends ItemView {
         this.footnotes = [];
         this.currentFile = null;
         this.viewMode = "highlights"; // 'highlights', 'footnotes', or 'split'
+        this.searchQuery = ""; // Search filter
     }
 
     getViewType() {
@@ -57,6 +58,18 @@ export class HighlightNavigatorView extends ItemView {
                 this.renderContent();
             };
         });
+
+        // Search Bar
+        const searchContainer = container.createDiv({ cls: "highlight-navigator-search" });
+        const searchInput = searchContainer.createEl("input", { 
+            type: "text", 
+            placeholder: "Search...",
+            cls: "nav-search-input"
+        });
+        searchInput.oninput = (e) => {
+            this.searchQuery = e.target.value.toLowerCase();
+            this.renderContent();
+        };
 
         // Content area
         this.contentEl = container.createDiv({ cls: "highlight-navigator-content" });
@@ -152,19 +165,34 @@ export class HighlightNavigatorView extends ItemView {
     }
 
     renderList(container, items, type) {
-        if (items.length === 0) {
-            this.showEmpty(`No ${type} found.`, container);
+        // Filter items based on search query
+        const filteredItems = items.filter(item => {
+            if (!this.searchQuery) return true;
+            return item.text.toLowerCase().includes(this.searchQuery);
+        });
+
+        if (filteredItems.length === 0) {
+            if (this.searchQuery) {
+                this.showEmpty(`No matches for "${this.searchQuery}".`, container);
+            } else {
+                this.showEmpty(`No ${type} found.`, container);
+            }
             return;
         }
 
         const title = type === "highlights" ? "Highlights" : "Footnotes";
         const stats = container.createDiv({ cls: "highlight-navigator-stats" });
-        stats.createSpan({ text: `${items.length} ${title.toLowerCase()}` });
+        
+        let statsText = `${filteredItems.length} ${title.toLowerCase()}`;
+        if (this.searchQuery && filteredItems.length !== items.length) {
+            statsText += ` (filtered from ${items.length})`;
+        }
+        stats.createSpan({ text: statsText });
 
         const list = container.createDiv({ cls: "highlight-navigator-list" });
         const fragment = document.createDocumentFragment();
 
-        items.forEach((item, index) => {
+        filteredItems.forEach((item, index) => {
             const el = document.createElement("div");
             el.addClass("highlight-navigator-item");
 

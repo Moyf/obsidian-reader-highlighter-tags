@@ -25,6 +25,29 @@ export var SelectionLogic = class {
     this.blockLevelTagsForSplit = BLOCK_LEVEL_TAGS_FOR_SPLIT;
   }
 
+  // Timeout-safe regex execution to prevent catastrophic backtracking
+  safeRegexExec(regex, text, timeoutMs = 3000) {
+    const startTime = Date.now();
+    const results = [];
+    let match;
+    try {
+      while ((match = regex.exec(text)) !== null) {
+        results.push({
+          index: match.index,
+          length: match[0].length,
+          text: match[0]
+        });
+        if (Date.now() - startTime > timeoutMs) {
+          console.warn(`[Highlighter] Regex timed out after ${timeoutMs}ms, returning ${results.length} partial results`);
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn("[Highlighter] Regex execution error:", e.message);
+    }
+    return results;
+  }
+
   async locateSelection(processedFile, view, selectionSnippet, context = null, occurrenceIndex = 0) {
     const snippet = this.stripBrowserJunk(selectionSnippet);
     if (!snippet) {
@@ -50,21 +73,35 @@ export var SelectionLogic = class {
     const bodyContent = fullRaw.substring(firstSegmentBodyStart);
     const selectionBlocks = this.splitSelectionBlocks(snippet);
 
-    let candidates = selectionBlocks.length > 1 ? this.findBlockSequenceCandidates(bodyContent, selectionBlocks, 0) : [];
+    // Track which strategies were attempted for diagnostics
+    const diagnostics = { strategies: {} };
+
+    let candidates = [];
+    if (selectionBlocks.length > 1) {
+      candidates = this.findBlockSequenceCandidates(bodyContent, selectionBlocks, 0);
+      diagnostics.strategies.blockSequence = { tried: true, found: candidates.length };
+    } else {
+      diagnostics.strategies.blockSequence = { tried: false, reason: "single block" };
+    }
 
     if (candidates.length === 0) {
       candidates = this.findAllCandidates(bodyContent, snippet, 0);
+      diagnostics.strategies.flexiblePattern = { tried: true, found: candidates.length };
     }
 
     if (candidates.length === 0) {
       candidates = this.findCandidatesStripped(bodyContent, snippet, 0);
+      diagnostics.strategies.strippedMatch = { tried: true, found: candidates.length };
     }
 
     if (candidates.length === 0) {
       candidates = this.findFuzzyCandidates(bodyContent, snippet, 0);
+      diagnostics.strategies.fuzzyMatch = { tried: true, found: candidates.length };
     }
 
     if (candidates.length === 0) {
+      // R1: Diagnostic Mode — detailed failure logging
+      this.logSelectionDiagnostics(selectionSnippet, snippet, bodyContent, selectionBlocks, diagnostics);
       return null;
     }
 
@@ -76,6 +113,62 @@ export var SelectionLogic = class {
     }
 
     return this.mapVirtualToPhysical(result.start, result.end, virtual.segments);
+  }
+
+  // R1: Diagnostic logging for failed selection matching
+  logSelectionDiagnostics(rawSnippet, cleanedSnippet, bodyContent, selectionBlocks, diagnostics) {
+    const truncate = (str, len = 120) => str.length > len ? str.substring(0, len) + "…" : str;
+    const hasSupplementary = (str) => [...str].some(ch => ch.length > 1);
+
+    console.group("%c[Highlighter] Selection Match Failed", "color: #e74c3c; font-weight: bold");
+
+    console.log("📋 Raw snippet:", truncate(rawSnippet, 200));
+    console.log("🧹 Cleaned snippet:", truncate(cleanedSnippet, 200));
+    console.log("📐 Snippet length:", cleanedSnippet.length, "chars,", [...cleanedSnippet].length, "code points");
+    console.log("🔤 Contains supplementary-plane chars:", hasSupplementary(cleanedSnippet));
+    console.log("📄 Selection blocks:", selectionBlocks.length);
+
+    console.log("\n🔍 Strategy Results:");
+    for (const [name, result] of Object.entries(diagnostics.strategies)) {
+      if (result.tried) {
+        console.log(`  ${result.found > 0 ? "✅" : "❌"} ${name}: ${result.found} candidates`);
+      } else {
+        console.log(`  ⏭️ ${name}: skipped (${result.reason})`);
+      }
+    }
+
+    // Show what the flexible pattern looks like for the first 80 chars
+    try {
+      const sampleSnippet = cleanedSnippet.substring(0, 80);
+      const samplePattern = this.createFlexiblePattern(sampleSnippet);
+      if (samplePattern) {
+        console.log("\n🔧 Sample regex (first 80 chars):", truncate(samplePattern, 300));
+        try {
+          const testRegex = new RegExp(samplePattern, "gmu");
+          const testMatch = testRegex.exec(bodyContent);
+          console.log("  Test match:", testMatch ? `✅ at offset ${testMatch.index}` : "❌ no match");
+        } catch (e) {
+          console.log("  Test match: ⚠️ regex error:", e.message);
+        }
+      }
+    } catch (e) {
+      console.log("  Pattern build error:", e.message);
+    }
+
+    // Show nearby source context
+    const normalizedSnippet = this.normalizeComparableText(cleanedSnippet);
+    const firstWord = normalizedSnippet.split(/\s+/)[0];
+    if (firstWord && firstWord.length > 2) {
+      const idx = bodyContent.indexOf(firstWord);
+      if (idx !== -1) {
+        console.log("\n📍 First word '" + firstWord + "' found at offset", idx);
+        console.log("  Source context:", truncate(bodyContent.substring(idx, idx + 200), 200));
+      } else {
+        console.log("\n📍 First word '" + firstWord + "' NOT found in body content");
+      }
+    }
+
+    console.groupEnd();
   }
 
   async resolveVirtualContent(file, depth = 0, opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() }) {

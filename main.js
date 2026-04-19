@@ -411,6 +411,28 @@ var SelectionLogic = class {
     this.app = app;
     this.blockLevelTagsForSplit = BLOCK_LEVEL_TAGS_FOR_SPLIT;
   }
+  // Timeout-safe regex execution to prevent catastrophic backtracking
+  safeRegexExec(regex, text, timeoutMs = 3e3) {
+    const startTime = Date.now();
+    const results = [];
+    let match;
+    try {
+      while ((match = regex.exec(text)) !== null) {
+        results.push({
+          index: match.index,
+          length: match[0].length,
+          text: match[0]
+        });
+        if (Date.now() - startTime > timeoutMs) {
+          console.warn(`[Highlighter] Regex timed out after ${timeoutMs}ms, returning ${results.length} partial results`);
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn("[Highlighter] Regex execution error:", e.message);
+    }
+    return results;
+  }
   async locateSelection(processedFile, view, selectionSnippet, context = null, occurrenceIndex = 0) {
     const snippet = this.stripBrowserJunk(selectionSnippet);
     if (!snippet) {
@@ -432,17 +454,28 @@ var SelectionLogic = class {
     }
     const bodyContent = fullRaw.substring(firstSegmentBodyStart);
     const selectionBlocks = this.splitSelectionBlocks(snippet);
-    let candidates = selectionBlocks.length > 1 ? this.findBlockSequenceCandidates(bodyContent, selectionBlocks, 0) : [];
+    const diagnostics = { strategies: {} };
+    let candidates = [];
+    if (selectionBlocks.length > 1) {
+      candidates = this.findBlockSequenceCandidates(bodyContent, selectionBlocks, 0);
+      diagnostics.strategies.blockSequence = { tried: true, found: candidates.length };
+    } else {
+      diagnostics.strategies.blockSequence = { tried: false, reason: "single block" };
+    }
     if (candidates.length === 0) {
       candidates = this.findAllCandidates(bodyContent, snippet, 0);
+      diagnostics.strategies.flexiblePattern = { tried: true, found: candidates.length };
     }
     if (candidates.length === 0) {
       candidates = this.findCandidatesStripped(bodyContent, snippet, 0);
+      diagnostics.strategies.strippedMatch = { tried: true, found: candidates.length };
     }
     if (candidates.length === 0) {
       candidates = this.findFuzzyCandidates(bodyContent, snippet, 0);
+      diagnostics.strategies.fuzzyMatch = { tried: true, found: candidates.length };
     }
     if (candidates.length === 0) {
+      this.logSelectionDiagnostics(selectionSnippet, snippet, bodyContent, selectionBlocks, diagnostics);
       return null;
     }
     candidates = this.offsetCandidates(candidates, firstSegmentBodyStart);
@@ -451,6 +484,53 @@ var SelectionLogic = class {
       return null;
     }
     return this.mapVirtualToPhysical(result.start, result.end, virtual.segments);
+  }
+  // R1: Diagnostic logging for failed selection matching
+  logSelectionDiagnostics(rawSnippet, cleanedSnippet, bodyContent, selectionBlocks, diagnostics) {
+    const truncate = (str, len = 120) => str.length > len ? str.substring(0, len) + "\u2026" : str;
+    const hasSupplementary = (str) => [...str].some((ch) => ch.length > 1);
+    console.group("%c[Highlighter] Selection Match Failed", "color: #e74c3c; font-weight: bold");
+    console.log("\u{1F4CB} Raw snippet:", truncate(rawSnippet, 200));
+    console.log("\u{1F9F9} Cleaned snippet:", truncate(cleanedSnippet, 200));
+    console.log("\u{1F4D0} Snippet length:", cleanedSnippet.length, "chars,", [...cleanedSnippet].length, "code points");
+    console.log("\u{1F524} Contains supplementary-plane chars:", hasSupplementary(cleanedSnippet));
+    console.log("\u{1F4C4} Selection blocks:", selectionBlocks.length);
+    console.log("\n\u{1F50D} Strategy Results:");
+    for (const [name, result] of Object.entries(diagnostics.strategies)) {
+      if (result.tried) {
+        console.log(`  ${result.found > 0 ? "\u2705" : "\u274C"} ${name}: ${result.found} candidates`);
+      } else {
+        console.log(`  \u23ED\uFE0F ${name}: skipped (${result.reason})`);
+      }
+    }
+    try {
+      const sampleSnippet = cleanedSnippet.substring(0, 80);
+      const samplePattern = this.createFlexiblePattern(sampleSnippet);
+      if (samplePattern) {
+        console.log("\n\u{1F527} Sample regex (first 80 chars):", truncate(samplePattern, 300));
+        try {
+          const testRegex = new RegExp(samplePattern, "gmu");
+          const testMatch = testRegex.exec(bodyContent);
+          console.log("  Test match:", testMatch ? `\u2705 at offset ${testMatch.index}` : "\u274C no match");
+        } catch (e) {
+          console.log("  Test match: \u26A0\uFE0F regex error:", e.message);
+        }
+      }
+    } catch (e) {
+      console.log("  Pattern build error:", e.message);
+    }
+    const normalizedSnippet = this.normalizeComparableText(cleanedSnippet);
+    const firstWord = normalizedSnippet.split(/\s+/)[0];
+    if (firstWord && firstWord.length > 2) {
+      const idx = bodyContent.indexOf(firstWord);
+      if (idx !== -1) {
+        console.log("\n\u{1F4CD} First word '" + firstWord + "' found at offset", idx);
+        console.log("  Source context:", truncate(bodyContent.substring(idx, idx + 200), 200));
+      } else {
+        console.log("\n\u{1F4CD} First word '" + firstWord + "' NOT found in body content");
+      }
+    }
+    console.groupEnd();
   }
   async resolveVirtualContent(file, depth = 0, opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() }) {
     if (depth > 5) {
@@ -1300,6 +1380,7 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
     this.footnotes = [];
     this.currentFile = null;
     this.viewMode = "highlights";
+    this.searchQuery = "";
   }
   getViewType() {
     return HIGHLIGHT_NAVIGATOR_VIEW;
@@ -1333,6 +1414,16 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
         this.renderContent();
       };
     });
+    const searchContainer = container.createDiv({ cls: "highlight-navigator-search" });
+    const searchInput = searchContainer.createEl("input", {
+      type: "text",
+      placeholder: "Search...",
+      cls: "nav-search-input"
+    });
+    searchInput.oninput = (e) => {
+      this.searchQuery = e.target.value.toLowerCase();
+      this.renderContent();
+    };
     this.contentEl = container.createDiv({ cls: "highlight-navigator-content" });
     const footer = container.createDiv({ cls: "highlight-navigator-footer" });
     const exportBtn = footer.createEl("button", { text: "Export to MD", cls: "mod-cta" });
@@ -1406,16 +1497,29 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
     }
   }
   renderList(container, items, type) {
-    if (items.length === 0) {
-      this.showEmpty(`No ${type} found.`, container);
+    const filteredItems = items.filter((item) => {
+      if (!this.searchQuery)
+        return true;
+      return item.text.toLowerCase().includes(this.searchQuery);
+    });
+    if (filteredItems.length === 0) {
+      if (this.searchQuery) {
+        this.showEmpty(`No matches for "${this.searchQuery}".`, container);
+      } else {
+        this.showEmpty(`No ${type} found.`, container);
+      }
       return;
     }
     const title = type === "highlights" ? "Highlights" : "Footnotes";
     const stats = container.createDiv({ cls: "highlight-navigator-stats" });
-    stats.createSpan({ text: `${items.length} ${title.toLowerCase()}` });
+    let statsText = `${filteredItems.length} ${title.toLowerCase()}`;
+    if (this.searchQuery && filteredItems.length !== items.length) {
+      statsText += ` (filtered from ${items.length})`;
+    }
+    stats.createSpan({ text: statsText });
     const list = container.createDiv({ cls: "highlight-navigator-list" });
     const fragment = document.createDocumentFragment();
-    items.forEach((item, index) => {
+    filteredItems.forEach((item, index) => {
       const el = document.createElement("div");
       el.addClass("highlight-navigator-item");
       if (type === "highlights") {
@@ -1620,6 +1724,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     this.addCommand({
       id: "highlight-selection-reading",
       name: "Highlight selection (Reading View)",
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "h" }],
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
         if (!view)
@@ -1633,6 +1738,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     this.addCommand({
       id: "tag-selection",
       name: "Tag selection (Reading View)",
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "t" }],
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
         if (!view)
@@ -1646,6 +1752,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     this.addCommand({
       id: "annotate-selection",
       name: "Add annotation to selection (Reading View)",
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "n" }],
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
         if (!view)
@@ -1739,6 +1846,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       this.addCommand({
         id: `apply-color-${i + 1}`,
         name: `Apply highlight color ${i + 1}`,
+        hotkeys: [{ modifiers: ["Mod", "Shift"], key: String(i + 1) }],
         checkCallback: (checking) => {
           if (!this.settings.enableColorPalette)
             return false;
