@@ -570,9 +570,14 @@ var SelectionLogic = class {
     return `(?:${leadingMarkdownOnly})*?${pattern}`;
   }
   stripBrowserJunk(text) {
-    if (!text)
-      return text;
-    return text.normalize("NFC").replace(/[\u21a9\u21b5\ufe0e\ufe0f]+/g, " ").replace(/[\u00a0\s]+/g, " ").replace(/[\u2013\u2014\u201c\u201d\u2018\u2019\u00ab\u00bb]+/g, " ").replace(/\[(?:[0-9-]+|[a-zA-Z?]+)\]/g, "").replace(/\s+/g, " ").trim();
+    if (!text) return text;
+    return text.normalize("NFC")
+      .replace(/[\u21a9\u21b5\ufe0e\ufe0f]+/g, " ")
+      .replace(/[\u00a0\s]+/g, " ")
+      .replace(/[\u2013\u2014\u201c\u201d\u2018\u2019\u00ab\u00bb]+/g, " ")
+      .replace(/\[\^?(?:[0-9-]+|[a-zA-Z?]+)\]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
   findAllCandidates(text, snippet, bodyStart = 0) {
     const cleanSnippet = snippet.trim();
@@ -1757,30 +1762,26 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     });
     this.app.workspace.revealLeaf(leaf);
   }
-async applyMarkdownModification(file, raw, start, end, mode, payload = "", autoTag = "") {
-    if (!raw) {
-      raw = await this.app.vault.read(file);
-    }
+  async applyMarkdownModification(file, raw, start, end, mode, payload = "", autoTag = "") {
+    if (!raw) raw = await this.app.vault.read(file);
+
     let expandedStart = start;
     let expandedEnd = end;
     let bodyStart = 0;
+
     if (raw.startsWith("---")) {
       const secondDash = raw.indexOf("---", 3);
-      if (secondDash !== -1) {
-        bodyStart = secondDash + 3;
-      }
+      if (secondDash !== -1) bodyStart = secondDash + 3;
     }
+
     let expanded = true;
     while (expanded) {
       expanded = false;
       const preceding = raw.substring(0, expandedStart);
       const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]:?\s?|\[)$/);
       if (matchBack && expandedStart > bodyStart) {
-        const newStart = expandedStart - matchBack[0].length;
-        if (newStart >= bodyStart) {
-          expandedStart = newStart;
-          expanded = true;
-        }
+        expandedStart -= matchBack[0].length;
+        expanded = true;
       }
       const following = raw.substring(expandedEnd);
       const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\[\[|\]\([^)]+\)|\[\^[^\]]+\])/);
@@ -1789,69 +1790,60 @@ async applyMarkdownModification(file, raw, start, end, mode, payload = "", autoT
         expanded = true;
       }
     }
+
     const selectedText = raw.substring(expandedStart, expandedEnd);
     const paragraphs = selectedText.split(/\r?\n\s*\r?\n/);
-    let fullTag = "";
+    const newline = raw.includes("\r\n") ? "\r\n" : "\n";
+    
     const sanitizeTag = (t) => t.trim().replace(/^#/, "").replace(/\s+/g, "_");
+    let fullTag = "";
     if (mode === "tag" && payload) {
       const prefix = this.settings.defaultTagPrefix ? sanitizeTag(this.settings.defaultTagPrefix) : "";
-      const cleanPayload = payload.split(/\s+/).map(sanitizeTag).filter((t) => t).map((t) => `#${t}`).join(" ");
-      fullTag = prefix ? `#${sanitizeTag(prefix)} ${cleanPayload}` : cleanPayload;
-    } else if ((mode === "highlight" || mode === "color") && this.settings.defaultTagPrefix) {
-      const autoTagSetting = sanitizeTag(this.settings.defaultTagPrefix);
-      if (autoTagSetting) {
-        fullTag = `#${autoTagSetting}`;
-      }
+      const cleanPayload = payload.split(/\s+/).map(sanitizeTag).filter(t => t).map(t => `#${t}`).join(" ");
+      fullTag = prefix ? `#${prefix} ${cleanPayload}` : cleanPayload;
+    } else if (this.settings.defaultTagPrefix && (mode === "highlight" || mode === "color")) {
+      fullTag = `#${sanitizeTag(this.settings.defaultTagPrefix)}`;
     }
-    if (autoTag) {
-      const cleanAutoTag = sanitizeTag(autoTag);
-      fullTag = fullTag ? `${fullTag} #${cleanAutoTag}` : `#${cleanAutoTag}`;
-    }
-    const newline = raw.includes("\r\n") ? "\r\n" : "\n";
+    if (autoTag) fullTag = fullTag ? `${fullTag} #${sanitizeTag(autoTag)}` : `#${sanitizeTag(autoTag)}`;
+
     const processedParagraphs = paragraphs.map((paragraph) => {
-      if (!paragraph.trim())
-        return paragraph;
+      if (!paragraph.trim()) return paragraph;
+      
       const lines = paragraph.split(/\r?\n/);
       const processedLines = lines.map((line) => {
         let cleanLine = line.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, "");
-        if (mode === "highlight" || mode === "color" || mode === "tag" || mode === "remove") {
-          cleanLine = cleanLine.split("==").join("");
-        } else if (mode === "bold") {
-          cleanLine = cleanLine.split("**").join("");
-        } else if (mode === "italic") {
-          cleanLine = cleanLine.split("*").join("");
+        if (["highlight", "color", "tag", "remove"].includes(mode)) {
+          cleanLine = cleanLine.replace(/==/g, "");
         }
-        if (mode === "remove")
-          return cleanLine;
+
+        if (mode === "remove") return cleanLine;
+
         const matchIndent = cleanLine.match(/^(\s*)/);
         const indent = matchIndent ? matchIndent[0] : "";
-        const contentAfterIndent = cleanLine.substring(indent.length);
-        const prefixRegex = /^((?:#{1,6}\s+)|(?:[-*+]\s+)|(?:\d+\.\s+)|(?:>\s+)|(?:-\s\[[ x]\]\s+))/;
-        const matchPrefix = contentAfterIndent.match(prefixRegex);
-        let prefix = "";
-        let content = contentAfterIndent;
-        if (matchPrefix) {
-          prefix = matchPrefix[0];
-          content = contentAfterIndent.substring(prefix.length);
-        }
-        content = content.trim();
-        if (!content)
-          return line;
+        const rest = cleanLine.substring(indent.length);
+        const prefixMatch = rest.match(/^((?:#{1,6}\s+)|(?:[-*+]\s+)|(?:\d+\.\s+)|(?:>\s+)|(?:-\s\[[ x]\]\s+))/);
+        const prefix = prefixMatch ? prefixMatch[0] : "";
+        let content = rest.substring(prefix.length).trim();
+
+        if (!content || content.length === 0) return line;
+
         const tagStr = fullTag ? `${fullTag} ` : "";
-        let wrappedContent = content;
+        let wrapped;
         if (mode === "highlight" || mode === "tag") {
-          if (this.settings.enableColorHighlighting && this.settings.highlightColor) {
-            wrappedContent = `<mark style="background: ${this.settings.highlightColor}; color: black;">${content}</mark>`;
-          } else {
-            wrappedContent = `==${content}==`;
-          }
+          wrapped = (this.settings.enableColorHighlighting && this.settings.highlightColor) 
+            ? `<mark style="background: ${this.settings.highlightColor}; color: black;">${content}</mark>`
+            : `==${content}==`;
         } else if (mode === "color") {
-          wrappedContent = `<mark style="background: ${payload}; color: black;">${content}</mark>`;
+          wrapped = `<mark style="background: ${payload}; color: black;">${content}</mark>`;
+        } else {
+          wrapped = content;
         }
-        return `${indent}${prefix}${tagStr}${wrappedContent}`;
+
+        return `${indent}${prefix}${tagStr}${wrapped}`;
       });
       return processedLines.join(newline);
     });
+
     const replaceBlock = processedParagraphs.join(newline + newline);
     const newContent = raw.substring(0, expandedStart) + replaceBlock + raw.substring(expandedEnd);
     await this.app.vault.modify(file, newContent);
