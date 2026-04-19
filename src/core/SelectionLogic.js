@@ -169,7 +169,11 @@ export var SelectionLogic = class {
       if (char.match(/\s/)) {
         if (parts.length > 0 && parts[parts.length - 1].includes(gapPattern))
           continue;
-        parts.push(`(?:${gapPattern})+?`);
+        // Include markdown line-start markers (-, *, +, #, >) so that
+        // multi-line selections spanning headings and bullet lists can be
+        // matched even though the browser strips those prefixes from the
+        // selected text.
+        parts.push(`(?:${gapPattern}|[-*+#>])+?`);
       } else {
         parts.push(this.escapeRegex(char));
         if (i < snippet.length - 1) {
