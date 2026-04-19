@@ -266,7 +266,7 @@ export var SelectionLogic = class {
     return this.escapeRegex(char);
   }
 
-  stripBrowserJunk(text) {
+stripBrowserJunk(text) {
     if (!text) {
       return text;
     }
@@ -279,7 +279,8 @@ export var SelectionLogic = class {
       .replace(/[‐‑‒–—―]/g, "-")
       .replace(/[“”«»]/g, "\"")
       .replace(/[‘’]/g, "'")
-      .replace(/(^\s*\[\^[^\]]+\]:?|^\s*\[\^[^\]]+\]\s*$)/gm, "")
+      /* DELETE THE LINE BELOW IN YOUR ORIGINAL FILE */
+      /* .replace(/\[\^?(?:[0-9-]+|[a-zA-Z?]+)\]/g, "") */
       .replace(/\s+/g, " ")
       .trim();
   }
