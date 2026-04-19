@@ -561,7 +561,7 @@ var SelectionLogic = class {
       } else {
         parts.push(this.escapeRegex(char));
         if (i < snippet.length - 1) {
-          parts.push(`(?:${gapPattern}|[\\*_~=])*?`);
+          parts.push(`(?:${gapPattern}|[\\*_~=]|\\[\\^[^\\]]+\\])*?`);
         }
       }
     }
@@ -678,7 +678,7 @@ var SelectionLogic = class {
       /(\[(?!\^)(?:[^\]]+)\]\[(?:[^\]]*)\])/.source,
       /(\[(?!\^)(?:[^\]]+)\]\((?:[^()"]*(?:\([^)]*\))?[^()"]*(?:"[^"]*")?)\))/.source,
       /(\[\[(?:[^\]]+)\]\])/.source,
-      /(\[\^[^\]]+\]:?\s?)/.source,
+      /(\[\^[^\]]+\]:?[ \t]?)/.source,
       /(\$\$[^$]+\$\$)/.source,
       /(\$(?:[^$\s]|[^$\s][^$]*[^$\s])\$)/.source,
       /(%%[^%]*%%)/.source,
@@ -1053,7 +1053,7 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
       })
     );
     this.registerEvent(
-      this.app.vault.on("modify", (file) => {
+      this.app.workspace.on("active-leaf-change", (file) => {
         if (this.currentFile && file.path === this.currentFile.path) {
           this.refresh(true);
         }
