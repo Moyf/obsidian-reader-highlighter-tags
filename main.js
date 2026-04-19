@@ -354,8 +354,9 @@ var FloatingManager = class {
           top = rect.bottom + 10;
         if (left < 10)
           left = 10;
-        if (left + containerWidth > window.innerWidth - 10)
+        if (left + containerWidth > window.innerWidth - 10) {
           left = window.innerWidth - containerWidth - 10;
+        }
         this.containerEl.style.top = `${top}px`;
         this.containerEl.style.left = `${left}px`;
       }
@@ -626,7 +627,8 @@ var SelectionLogic = class {
     if (!text) {
       return text;
     }
-    return text.normalize("NFC").replace(/#:~:text=[^&\s]+(?:&|$)?/g, "").replace(/[\u200b-\u200d\ufeff]/g, "").replace(/(?:\u21a9|\u21b5|\ufe0e|\ufe0f)+/g, " ").replace(/[\u00a0\u202f]/g, " ").replace(/[‐‑‒–—―]/g, "-").replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'").replace(/\[\^?(?:[0-9-]+|[a-zA-Z?]+)\]/g, "").replace(/\s+/g, " ").trim();
+    // AMENDED: Removed the footnote-stripping regex to fix Ensor paragraph highlights
+    return text.normalize("NFC").replace(/#:~:text=[^&\s]+(?:&|$)?/g, "").replace(/[\u200b-\u200d\ufeff]/g, "").replace(/(?:\u21a9|\u21b5|\ufe0e|\ufe0f)+/g, " ").replace(/[\u00a0\u202f]/g, " ").replace(/[‐‑‒–—―]/g, "-").replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
   }
   stripUrlsForPatternMatch(snippet) {
     return snippet.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/<https?:\/\/[^>]+>/g, "");
@@ -952,12 +954,12 @@ var SelectionLogic = class {
     let remainder = line.substring(indent.length);
     let prefix = "";
     const prefixPatterns = [
+      /^\[\^[^\]]+\]:\s*/,
       /^>\s*/,
       /^#{1,6}\s+/,
       /^-\s\[[ xX]\]\s+/,
       /^[-*+]\s+/,
-      /^\d{1,3}[.)]\s+/,
-      /^\[\^[^\]]+\]:\s*/
+      /^\d{1,3}[.)]\s+/
     ];
     let matched = true;
     while (matched && remainder) {
@@ -2235,12 +2237,12 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     let remainder = line.substring(indent.length);
     let prefix = "";
     const prefixPatterns = [
+      /^\[\^[^\]]+\]:\s*/,
       /^>\s*/,
       /^#{1,6}\s+/,
       /^-\s\[[ xX]\]\s+/,
       /^[-*+]\s+/,
-      /^\d{1,3}[.)]\s+/,
-      /^\[\^[^\]]+\]:\s*/
+      /^\d{1,3}[.)]\s+/
     ];
     let matched = true;
     while (matched && remainder) {
@@ -2305,7 +2307,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
         }
       }
       const following = raw.substring(expandedEnd);
-      const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\)|\[\^[^\]]+\])/);
+      const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\))/);
       if (matchForward) {
         expandedEnd += matchForward[0].length;
         expanded = true;
