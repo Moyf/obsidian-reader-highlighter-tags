@@ -1825,7 +1825,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
         const prefix = prefixMatch ? prefixMatch[0] : "";
         let content = rest.substring(prefix.length).trim();
 
-        if (!content || content.length === 0) return line;
+        if (!content || content.length === 0) return cleanLine;
 
         const tagStr = fullTag ? `${fullTag} ` : "";
         let wrapped;
