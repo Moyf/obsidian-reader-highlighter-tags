@@ -354,9 +354,8 @@ var FloatingManager = class {
           top = rect.bottom + 10;
         if (left < 10)
           left = 10;
-        if (left + containerWidth > window.innerWidth - 10) {
+        if (left + containerWidth > window.innerWidth - 10)
           left = window.innerWidth - containerWidth - 10;
-        }
         this.containerEl.style.top = `${top}px`;
         this.containerEl.style.left = `${left}px`;
       }
@@ -388,35 +387,12 @@ var FloatingManager = class {
 };
 
 // src/core/SelectionLogic.js
-var BLOCK_LEVEL_TAGS_FOR_SPLIT = /* @__PURE__ */ new Set([
-  "P",
-  "LI",
-  "BLOCKQUOTE",
-  "PRE",
-  "H1",
-  "H2",
-  "H3",
-  "H4",
-  "H5",
-  "H6",
-  "TD",
-  "TH"
-]);
-var GAP_PATTERN = "[\\s\\u00a0\\u1680\\u2000-\\u200b\\u202f\\u205f\\u3000\\u21a9\\u21b5\\ufe0e\\ufe0f]";
-var INLINE_DECORATION_PATTERN = "(?:<mark[^>]*>|<\\/mark>|==|\\*\\*|~~|\\*|_|`)";
-var OPTIONAL_MARKDOWN_LINE_PREFIX = "[ \\t]{0,3}(?:(?:>\\s*)*(?:#{1,6}[ \\t]+|-\\s\\[[ xX]\\][ \\t]+|[-*+][ \\t]+|\\d{1,3}[.)][ \\t]+|\\[\\^[^\\]]+\\]:[ \\t]*))?";
-var MARKDOWN_PREFIX_ONLY_RE = /^[ \t]*(?:(?:>\s*)+|#{1,6}[ \t]*|-\s\[[ xX]\][ \t]*|[-*+][ \t]*|\d{1,3}[.)][ \t]*|\[\^[^\]]+\]:[ \t]*)+$/;
-var INLINE_DECORATION_RE = /<mark[^>]*>|<\/mark>|==|\*\*|~~|\*|_|`/g;
 var SelectionLogic = class {
   constructor(app) {
     this.app = app;
-    this.blockLevelTagsForSplit = BLOCK_LEVEL_TAGS_FOR_SPLIT;
   }
   async locateSelection(processedFile, view, selectionSnippet, context = null, occurrenceIndex = 0) {
     const snippet = this.stripBrowserJunk(selectionSnippet);
-    if (!snippet) {
-      return null;
-    }
     const activeFile = view.file;
     const opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
     const virtual = await this.resolveVirtualContent(activeFile, 0, opContext);
@@ -432,26 +408,19 @@ var SelectionLogic = class {
       }
     }
     const bodyContent = fullRaw.substring(firstSegmentBodyStart);
-    const selectionBlocks = this.splitSelectionBlocks(snippet);
-    let candidates = selectionBlocks.length > 1 ? this.findBlockSequenceCandidates(bodyContent, selectionBlocks, 0) : [];
-    if (candidates.length === 0) {
-      candidates = this.findAllCandidates(bodyContent, snippet, 0);
-    }
+    let candidates = this.findAllCandidates(bodyContent, snippet, 0);
+    candidates = candidates.map((c) => ({ ...c, start: c.start + firstSegmentBodyStart, end: c.end + firstSegmentBodyStart }));
     if (candidates.length === 0) {
       candidates = this.findCandidatesStripped(bodyContent, snippet, 0);
+      candidates = candidates.map((c) => ({ ...c, start: c.start + firstSegmentBodyStart, end: c.end + firstSegmentBodyStart }));
     }
-    if (candidates.length === 0) {
-      candidates = this.findFuzzyCandidates(bodyContent, snippet, 0);
+    if (candidates.length > 0) {
+      const result = this.resolveCandidates(candidates, fullRaw, context, occurrenceIndex);
+      if (result) {
+        return this.mapVirtualToPhysical(result.start, result.end, virtual.segments);
+      }
     }
-    if (candidates.length === 0) {
-      return null;
-    }
-    candidates = this.offsetCandidates(candidates, firstSegmentBodyStart);
-    const result = this.resolveCandidates(candidates, fullRaw, context, occurrenceIndex);
-    if (!result) {
-      return null;
-    }
-    return this.mapVirtualToPhysical(result.start, result.end, virtual.segments);
+    return null;
   }
   async resolveVirtualContent(file, depth = 0, opContext = { cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() }) {
     if (depth > 5) {
@@ -557,13 +526,19 @@ var SelectionLogic = class {
     if (context) {
       const cleanContext = context.replace(/\s+/g, " ").trim();
       candidates = candidates.map((cand) => {
-        const sourceBlock = (cand.text || raw.substring(cand.start, cand.end)).replace(/\s+/g, " ").trim();
+        let blockStart = raw.lastIndexOf("\n", cand.start);
+        if (blockStart === -1)
+          blockStart = 0;
+        let blockEnd = raw.indexOf("\n", cand.end);
+        if (blockEnd === -1)
+          blockEnd = raw.length;
+        const sourceBlock = raw.substring(blockStart, blockEnd).replace(/\s+/g, " ").trim();
         const score = this.calculateSimilarity(sourceBlock, cleanContext);
         return { ...cand, score };
       });
-      const bestScore = Math.max(...candidates.map((candidate) => candidate.score));
+      const bestScore = Math.max(...candidates.map((c) => c.score));
       const threshold = bestScore * 0.85;
-      const validCandidates = candidates.filter((candidate) => candidate.score >= threshold);
+      const validCandidates = candidates.filter((c) => c.score >= threshold);
       if (occurrenceIndex >= 0 && occurrenceIndex < validCandidates.length) {
         const chosen = validCandidates[occurrenceIndex];
         return { raw, start: chosen.start, end: chosen.end };
@@ -575,131 +550,95 @@ var SelectionLogic = class {
     return { raw, start: candidates[0].start, end: candidates[0].end };
   }
   createFlexiblePattern(snippet) {
-    const lines = this.splitSelectionBlocks(this.stripUrlsForPatternMatch(snippet), false);
-    if (lines.length === 0) {
-      return "";
-    }
-    const contentPatterns = lines.map((line) => this.createFlexibleLinePattern(line));
-    const lineBridge = `(?:[ \\t]*(?:${INLINE_DECORATION_PATTERN}){0,3}[ \\t]*\\r?\\n(?:[ \\t>]*\\r?\\n){0,3})`;
-    const joined = contentPatterns.map((pattern, index) => {
-      const linePattern = `${OPTIONAL_MARKDOWN_LINE_PREFIX}${pattern}`;
-      return index === 0 ? linePattern : `${lineBridge}${linePattern}`;
-    }).join("");
-    return joined;
-  }
-  createFlexibleLinePattern(line) {
-    const normalizedLine = this.normalizeComparableText(line);
-    const parts = [];
-    let pendingGap = false;
-    for (let i = 0; i < normalizedLine.length; i++) {
-      const char = normalizedLine[i];
-      if (/\s/.test(char)) {
-        pendingGap = true;
-        continue;
-      }
-      if (pendingGap && parts.length > 0) {
-        parts.push(`(?:${GAP_PATTERN}|[-\u2010-\u2015]|"|'|[\u201C\u201D\u2018\u2019\xAB\xBB]){1,3}`);
-        pendingGap = false;
-      }
-      parts.push(this.getFlexibleCharPattern(char));
-      if (i < normalizedLine.length - 1) {
-        parts.push(`(?:${GAP_PATTERN}|[-\u2010-\u2015]|"|'|[\u201C\u201D\u2018\u2019\xAB\xBB]|[\\*_~=]){0,3}`);
+    const gapPattern = "[\\s\\u21a9\\u21b5\\ufe0e\\ufe0f\\ufe0f\\u00a0\\u2013\\u2014\\u201c\\u201d\\u2018\\u2019\\u00ab\\u00bb]";
+    let parts = [];
+    for (let i = 0; i < snippet.length; i++) {
+      const char = snippet[i];
+      if (char.match(/\s/)) {
+        if (parts.length > 0 && parts[parts.length - 1].includes(gapPattern))
+          continue;
+        parts.push(`(?:${gapPattern}|[-*+#>])+?`);
+      } else {
+        parts.push(this.escapeRegex(char));
+        if (i < snippet.length - 1) {
+          parts.push(`(?:${gapPattern}|[\\*_~=]|\\[\\^[^\\]]+\\]){0,3}`);
+        }
       }
     }
-    if (parts.length === 0) {
-      return "";
-    }
-    return parts.join("");
-  }
-  getFlexibleCharPattern(char) {
-    if (char === "-") {
-      return "[-\u2010-\u2015]";
-    }
-    if (char === '"') {
-      return '["\u201C\u201D\xAB\xBB]';
-    }
-    if (char === "'") {
-      return "['\u2018\u2019`]";
-    }
-    return this.escapeRegex(char);
+    const pattern = parts.join("");
+    const leadingMarkdownOnly = "[\\*_~=#>\\+\\|\\u21a9\\u21b5\\ufe0e\\ufe0f]";
+    return `(?:${leadingMarkdownOnly})*?${pattern}`;
   }
   stripBrowserJunk(text) {
-    if (!text) {
+    if (!text)
       return text;
-    }
-    // AMENDED: Removed the footnote-stripping regex to fix Ensor paragraph highlights
-    return text.normalize("NFC").replace(/#:~:text=[^&\s]+(?:&|$)?/g, "").replace(/[\u200b-\u200d\ufeff]/g, "").replace(/(?:\u21a9|\u21b5|\ufe0e|\ufe0f)+/g, " ").replace(/[\u00a0\u202f]/g, " ").replace(/[‐‑‒–—―]/g, "-").replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
+    return text.normalize("NFC").replace(/[\u21a9\u21b5\ufe0e\ufe0f]+/g, " ").replace(/[\u00a0\s]+/g, " ").replace(/[\u2013\u2014\u201c\u201d\u2018\u2019\u00ab\u00bb]+/g, " ").replace(/\[\^?(?:[0-9-]+|[a-zA-Z?]+)\]/g, "").replace(/\s+/g, " ").trim();
   }
+  // FIX 1: Strip markdown link URLs before building regex patterns.
+  // URLs fed into createFlexiblePattern generate ~100+ nested lazy quantifiers
+  // which cause catastrophic backtracking and crash mobile regex engines.
+  // We keep the visible link text (which is what the user selected) and discard
+  // the URL entirely — it is never needed for position matching in source text.
   stripUrlsForPatternMatch(snippet) {
     return snippet.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/<https?:\/\/[^>]+>/g, "");
   }
   findAllCandidates(text, snippet, bodyStart = 0) {
     const cleanSnippet = snippet.trim();
-    if (!cleanSnippet) {
+    if (!cleanSnippet)
       return [];
-    }
     const patternSnippet = this.stripUrlsForPatternMatch(cleanSnippet);
-    if (!patternSnippet) {
-      return [];
-    }
     if (patternSnippet.length > 800) {
       const startAnchor = patternSnippet.substring(0, 150);
       const endAnchor = patternSnippet.substring(patternSnippet.length - 150);
       const startP = this.createFlexiblePattern(startAnchor);
       const endP = this.createFlexiblePattern(endAnchor);
-      let startRegex;
-      let endRegex;
+      let startRegex, endRegex;
       try {
-        startRegex = new RegExp(startP, "gmu");
-        endRegex = new RegExp(endP, "gmu");
+        startRegex = new RegExp(startP, "g");
+        endRegex = new RegExp(endP, "g");
       } catch (e) {
         console.error("INVALID REGEX PATTERN (anchor):", e);
         return [];
       }
       const startMatches = [];
       const endMatches = [];
-      let match2;
+      let m;
       try {
-        while ((match2 = startRegex.exec(text)) !== null) {
-          if (match2.index >= bodyStart) {
-            startMatches.push(match2);
-          }
+        while ((m = startRegex.exec(text)) !== null) {
+          if (m.index >= bodyStart)
+            startMatches.push(m);
         }
       } catch (e) {
         console.warn("Regex execution failed on startRegex (mobile backtracking limit):", e);
         return [];
       }
       try {
-        while ((match2 = endRegex.exec(text)) !== null) {
-          if (match2.index >= bodyStart) {
-            endMatches.push(match2);
-          }
+        while ((m = endRegex.exec(text)) !== null) {
+          if (m.index >= bodyStart)
+            endMatches.push(m);
         }
       } catch (e) {
         console.warn("Regex execution failed on endRegex (mobile backtracking limit):", e);
         return [];
       }
       if (startMatches.length > 0 && endMatches.length > 0) {
-        for (const startMatch of startMatches) {
-          const bestEnd = endMatches.find((endMatch) => endMatch.index > startMatch.index && endMatch.index - startMatch.index < cleanSnippet.length * 2);
+        for (const startM of startMatches) {
+          const bestEnd = endMatches.find((e) => e.index > startM.index && e.index - startM.index < cleanSnippet.length * 2);
           if (bestEnd) {
             return [{
-              start: startMatch.index,
+              start: startM.index,
               end: bestEnd.index + bestEnd[0].length,
-              text: text.substring(startMatch.index, bestEnd.index + bestEnd[0].length)
+              text: text.substring(startM.index, bestEnd.index + bestEnd[0].length)
             }];
           }
         }
       }
     }
     const pattern = this.createFlexiblePattern(patternSnippet);
-    if (!pattern) {
-      return [];
-    }
     let regex;
     try {
-      regex = new RegExp(pattern, "gmu");
-    } catch (_error) {
+      regex = new RegExp(pattern, "g");
+    } catch (e) {
       console.error("INVALID REGEX PATTERN:", pattern);
       return [];
     }
@@ -772,7 +711,7 @@ var SelectionLogic = class {
       /(`[^`]+`)/.source,
       /(<(?:https?:\/\/[^>]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>)/.source,
       /(<\/?[a-zA-Z][^>]*>)/.source,
-      /(\\(?:[*_[\](){}#>+\-.!`~=|\\]))/.source,
+      /(\\[*_\[\](){}#>+\-.!`~=|\\])/.source,
       /(\*\*\*)/.source,
       /(\*\*|~~|==)/.source,
       /(\*|_)/.source,
@@ -819,13 +758,13 @@ var SelectionLogic = class {
           extractVisibleText(visibleStart, visibleEnd);
         } else if (match[8]) {
         } else if (match[9] || match[10]) {
-          const mathStart = matchStart + (match[9] ? 2 : 1);
-          const mathEnd = matchStart + fullMatch.length - (match[9] ? 2 : 1);
-          addRawText(mathStart, mathEnd);
+          const mStart = matchStart + (match[9] ? 2 : 1);
+          const mEnd = matchStart + fullMatch.length - (match[9] ? 2 : 1);
+          addRawText(mStart, mEnd);
         } else if (match[12] || match[13]) {
-          const codeStart = matchStart + 1;
-          const codeEnd = matchStart + fullMatch.length - 1;
-          addRawText(codeStart, codeEnd);
+          const cStart = matchStart + 1;
+          const cEnd = matchStart + fullMatch.length - 1;
+          addRawText(cStart, cEnd);
         } else if (match[15]) {
           const charPos = matchStart + 1;
           map.push(charPos);
@@ -843,12 +782,9 @@ var SelectionLogic = class {
     }
     const patternSnippet = this.stripUrlsForPatternMatch(snippet.trim());
     const pattern = this.createFlexiblePattern(patternSnippet);
-    if (!pattern) {
-      return [];
-    }
     let regex;
     try {
-      regex = new RegExp(pattern, "gmu");
+      regex = new RegExp(pattern, "g");
     } catch (e) {
       console.error("INVALID REGEX PATTERN in findCandidatesStripped:", e);
       return [];
@@ -861,13 +797,11 @@ var SelectionLogic = class {
         const strippedEnd = strippedMatch.index + strippedMatch[0].length;
         const rawStart = map[strippedStart];
         const rawEnd = strippedEnd < map.length ? map[strippedEnd] : map[strippedEnd - 1] + 1;
-        if (rawStart >= bodyStart) {
-          candidates.push({
-            start: rawStart,
-            end: rawEnd,
-            text: text.substring(rawStart, rawEnd)
-          });
-        }
+        candidates.push({
+          start: rawStart,
+          end: rawEnd,
+          text: text.substring(rawStart, rawEnd)
+        });
       }
     } catch (e) {
       console.warn("Regex execution failed in findCandidatesStripped (mobile backtracking limit):", e);
@@ -875,196 +809,15 @@ var SelectionLogic = class {
     }
     return candidates;
   }
-  findBlockSequenceCandidates(text, selectionBlocks, bodyStart = 0) {
-    if (selectionBlocks.length === 0) {
-      return [];
-    }
-    const documentLines = this.createDocumentLineRecords(text);
-    const candidates = [];
-    for (let startIndex = 0; startIndex < documentLines.length; startIndex++) {
-      const firstLine = documentLines[startIndex];
-      if (firstLine.start < bodyStart || !this.lineMatches(firstLine.compare, selectionBlocks[0])) {
-        continue;
-      }
-      let selectionIndex = 1;
-      let docIndex = startIndex + 1;
-      let lastMatch = startIndex;
-      while (selectionIndex < selectionBlocks.length && docIndex < documentLines.length) {
-        const candidateLine = documentLines[docIndex];
-        if (this.lineMatches(candidateLine.compare, selectionBlocks[selectionIndex])) {
-          lastMatch = docIndex;
-          selectionIndex++;
-          docIndex++;
-          continue;
-        }
-        if (candidateLine.skippable) {
-          docIndex++;
-          continue;
-        }
-        break;
-      }
-      if (selectionIndex === selectionBlocks.length) {
-        candidates.push({
-          start: firstLine.start,
-          end: documentLines[lastMatch].end,
-          text: text.substring(firstLine.start, documentLines[lastMatch].end)
-        });
-      }
-    }
-    return this.dedupeCandidates(candidates);
-  }
-  createDocumentLineRecords(text) {
-    const lines = [];
-    let offset = 0;
-    while (offset <= text.length) {
-      const nextBreak = text.indexOf("\n", offset);
-      const end = nextBreak === -1 ? text.length : nextBreak;
-      const rawLine = text.substring(offset, end);
-      const compare = this.normalizeLineForCompare(rawLine);
-      lines.push({
-        raw: rawLine,
-        start: offset,
-        end,
-        compare,
-        skippable: compare.length === 0 || MARKDOWN_PREFIX_ONLY_RE.test(rawLine.trimEnd())
-      });
-      if (nextBreak === -1) {
-        break;
-      }
-      offset = nextBreak + 1;
-    }
-    return lines;
-  }
-  splitSelectionBlocks(snippet, filterEmpty = true) {
-    const normalized = snippet.replace(/\r\n?/g, "\n");
-    const blocks = normalized.split("\n").map((line) => this.normalizeComparableText(line));
-    return filterEmpty ? blocks.filter((line) => line.length > 0) : blocks;
-  }
-  normalizeLineForCompare(line) {
-    const strippedLine = line.replace(INLINE_DECORATION_RE, "");
-    const parts = this.splitMarkdownLine(strippedLine);
-    return this.normalizeComparableText(parts.content);
-  }
-  normalizeComparableText(text) {
-    return this.stripBrowserJunk(text).replace(INLINE_DECORATION_RE, "").replace(/\s+/g, " ").trim();
-  }
-  splitMarkdownLine(line) {
-    const indentMatch = line.match(/^\s*/);
-    const indent = indentMatch ? indentMatch[0] : "";
-    let remainder = line.substring(indent.length);
-    let prefix = "";
-    const prefixPatterns = [
-      /^\[\^[^\]]+\]:\s*/,
-      /^>\s*/,
-      /^#{1,6}\s+/,
-      /^-\s\[[ xX]\]\s+/,
-      /^[-*+]\s+/,
-      /^\d{1,3}[.)]\s+/
-    ];
-    let matched = true;
-    while (matched && remainder) {
-      matched = false;
-      for (const pattern of prefixPatterns) {
-        const match = remainder.match(pattern);
-        if (match) {
-          prefix += match[0];
-          remainder = remainder.substring(match[0].length);
-          matched = true;
-          break;
-        }
-      }
-    }
-    return { indent, prefix, content: remainder };
-  }
-  lineMatches(source, target) {
-    if (!source || !target) {
-      return false;
-    }
-    if (source === target) {
-      return true;
-    }
-    if (source.includes(target) || target.includes(source)) {
-      return true;
-    }
-    const fuzzySource = this.normalizeForFuzzySearch(source);
-    const fuzzyTarget = this.normalizeForFuzzySearch(target);
-    if (!fuzzySource || !fuzzyTarget) {
-      return false;
-    }
-    return fuzzySource === fuzzyTarget || fuzzySource.includes(fuzzyTarget) || fuzzyTarget.includes(fuzzySource);
-  }
-  findFuzzyCandidates(text, snippet, bodyStart = 0) {
-    const needle = this.normalizeForFuzzySearch(snippet);
-    if (!needle) {
-      return [];
-    }
-    const { normalized, map } = this.buildFuzzyMap(text);
-    if (!normalized) {
-      return [];
-    }
-    const candidates = [];
-    let fromIndex = 0;
-    while (fromIndex < normalized.length) {
-      const matchIndex = normalized.indexOf(needle, fromIndex);
-      if (matchIndex === -1) {
-        break;
-      }
-      const rawStart = map[matchIndex];
-      const rawEnd = map[matchIndex + needle.length - 1] + 1;
-      if (rawStart >= bodyStart) {
-        candidates.push({
-          start: rawStart,
-          end: rawEnd,
-          text: text.substring(rawStart, rawEnd)
-        });
-      }
-      fromIndex = matchIndex + 1;
-    }
-    return this.dedupeCandidates(candidates);
-  }
-  buildFuzzyMap(text) {
-    let normalized = "";
-    const map = [];
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      if (/[\p{L}\p{N}]/u.test(char)) {
-        normalized += char.toLocaleLowerCase();
-        map.push(i);
-      }
-    }
-    return { normalized, map };
-  }
-  normalizeForFuzzySearch(text) {
-    return this.normalizeComparableText(text).split("").filter((char) => /[\p{L}\p{N}]/u.test(char)).join("").toLocaleLowerCase();
-  }
-  dedupeCandidates(candidates) {
-    const seen = /* @__PURE__ */ new Set();
-    return candidates.filter((candidate) => {
-      const key = `${candidate.start}:${candidate.end}`;
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-  }
-  offsetCandidates(candidates, offset) {
-    return candidates.map((candidate) => ({
-      ...candidate,
-      start: candidate.start + offset,
-      end: candidate.end + offset
-    }));
-  }
   calculateSimilarity(source, target) {
     if (source === target)
       return 1e3;
     const sSet = new Set(source.split(" "));
     const tSet = new Set(target.split(" "));
     let intersection = 0;
-    for (const token of tSet) {
-      if (sSet.has(token))
+    for (const t of tSet)
+      if (sSet.has(t))
         intersection++;
-    }
     const union = (/* @__PURE__ */ new Set([...sSet, ...tSet])).size;
     const jaccard = union === 0 ? 0 : intersection / union;
     const lenMultiplier = 1 / (1 + Math.abs(source.length - target.length) * 0.1);
@@ -1414,48 +1167,31 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
     const stats = container.createDiv({ cls: "highlight-navigator-stats" });
     stats.createSpan({ text: `${items.length} ${title.toLowerCase()}` });
     const list = container.createDiv({ cls: "highlight-navigator-list" });
-    const fragment = document.createDocumentFragment();
     items.forEach((item, index) => {
-      const el = document.createElement("div");
-      el.addClass("highlight-navigator-item");
+      const el = list.createDiv({ cls: "highlight-navigator-item" });
       if (type === "highlights") {
         if (item.color) {
-          const colorDot = document.createElement("span");
-          colorDot.addClass("highlight-color-dot");
+          const colorDot = el.createSpan({ cls: "highlight-color-dot" });
           colorDot.style.backgroundColor = item.color;
-          el.appendChild(colorDot);
         } else {
-          const colorDot = document.createElement("span");
-          colorDot.addClass("highlight-color-dot", "highlight-default");
-          el.appendChild(colorDot);
+          el.createSpan({ cls: "highlight-color-dot highlight-default" });
         }
       } else {
-        const idSpan = document.createElement("span");
-        idSpan.addClass("footnote-id");
-        idSpan.textContent = `[${item.id}] `;
+        const idSpan = el.createSpan({ cls: "footnote-id", text: `[${item.id}] ` });
         idSpan.style.marginRight = "5px";
         idSpan.style.color = "var(--text-muted)";
-        el.appendChild(idSpan);
       }
       const textPreview = item.text.length > 80 ? item.text.substring(0, 80) + "..." : item.text;
-      const textSpan = document.createElement("span");
-      textSpan.addClass("highlight-text");
-      textSpan.textContent = textPreview;
-      el.appendChild(textSpan);
+      el.createSpan({ cls: "highlight-text", text: textPreview });
       if (type === "highlights") {
-        const numberBadge = document.createElement("span");
-        numberBadge.addClass("highlight-number");
-        numberBadge.textContent = `${index + 1}`;
-        el.appendChild(numberBadge);
+        el.createSpan({ cls: "highlight-number", text: `${index + 1}` });
       }
       el.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         this.jumpToLine(item.line);
       };
-      fragment.appendChild(el);
     });
-    list.appendChild(fragment);
   }
   async jumpToLine(line) {
     const leaf = this.app.workspace.getMostRecentLeaf();
@@ -1511,22 +1247,6 @@ function setFallbackScroll(view, { y }) {
 
 // src/main.js
 init_export();
-var SMART_SELECTION_TAGS = /* @__PURE__ */ new Set([
-  "P",
-  "LI",
-  "BLOCKQUOTE",
-  "PRE",
-  "H1",
-  "H2",
-  "H3",
-  "H4",
-  "H5",
-  "H6",
-  "TD",
-  "TH"
-]);
-var FRONTMATTER_NEEDS_QUOTES_RE = new RegExp("[:\\s{}\\[\\],&*#?|<>=!%@\\\\-]");
-var FRONTMATTER_RESERVED_RE = /^(true|false|null|yes|no|on|off)$/i;
 var DEFAULT_SETTINGS = {
   toolbarPosition: "right",
   enableColorHighlighting: false,
@@ -1569,9 +1289,7 @@ var DEFAULT_SETTINGS = {
   showTooltips: false,
   // NEW: Frontmatter Auto-Tag
   enableFrontmatterTag: false,
-  frontmatterTag: "resaltados",
-  // NEW: Smart paragraph snapping
-  enableSmartParagraphSelection: false
+  frontmatterTag: "resaltados"
 };
 var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
   async onload() {
@@ -1595,7 +1313,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       })
     );
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", (_leaf) => {
+      this.app.workspace.on("active-leaf-change", (leaf) => {
         if (this.settings.enableReadingProgress) {
           this.saveReadingProgress();
         }
@@ -1768,83 +1486,27 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     const view = this.app.workspace.getActiveViewOfType(require("obsidian").MarkdownView);
     return view && view.getMode() === "preview" ? view : null;
   }
-  getSelectionContext(selectionSnapshot) {
+  getSelectionContext() {
     var _a;
-    const view = this.getActiveReadingView();
-    const range = this.getSelectionRange(selectionSnapshot);
-    if (!view || !range)
-      return null;
-    const blocks = this.getAllowedBlocksInRange(range, view.contentEl);
-    const fallbackBlock = this.getClosestAllowedBlock(range.commonAncestorContainer, view.contentEl);
-    const contextElement = blocks[0] || fallbackBlock || null;
-    const rawSnippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || ((_a = window.getSelection()) == null ? void 0 : _a.toString()) || "";
-    let snippet = rawSnippet;
-    if (this.settings.enableSmartParagraphSelection && blocks.length === 1) {
-      const blockText = this.getElementText(blocks[0]);
-      if (blockText) {
-        snippet = blockText;
-      }
-    }
-    return {
-      element: contextElement,
-      blocks,
-      snippet,
-      text: contextElement ? this.getElementText(contextElement) : null
-    };
-  }
-  getSelectionRange(selectionSnapshot) {
-    if (selectionSnapshot == null ? void 0 : selectionSnapshot.range) {
-      return selectionSnapshot.range.cloneRange();
-    }
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) {
-      return null;
-    }
-    return selection.getRangeAt(0).cloneRange();
-  }
-  getAllowedBlocksInRange(range, root) {
-    if (!root)
-      return [];
-    const selector = Array.from(SMART_SELECTION_TAGS).map((tag) => tag.toLowerCase()).join(", ");
-    const blocks = Array.from(root.querySelectorAll(selector)).filter((element) => {
-      const text = this.getElementText(element);
-      if (!text)
-        return false;
-      try {
-        return range.intersectsNode(element);
-      } catch (_error) {
-        return false;
-      }
-    });
-    return blocks.filter((element) => !blocks.some((other) => other !== element && other.contains(element)));
-  }
-  getClosestAllowedBlock(node, root) {
-    let current = (node == null ? void 0 : node.nodeType) === Node.ELEMENT_NODE ? node : node == null ? void 0 : node.parentElement;
-    while (current && current !== root) {
-      if (SMART_SELECTION_TAGS.has(current.tagName) && this.getElementText(current)) {
-        return current;
-      }
-      current = current.parentElement;
-    }
-    return current && SMART_SELECTION_TAGS.has(current.tagName) ? current : null;
-  }
-  getElementText(element) {
-    return ((element == null ? void 0 : element.innerText) || (element == null ? void 0 : element.textContent) || "").replace(/\s+/g, " ").trim();
-  }
-  buildSelectionRequest(view, selectionSnapshot) {
     const sel = window.getSelection();
-    const selectionContext = this.getSelectionContext(selectionSnapshot);
-    const snippet = (selectionContext == null ? void 0 : selectionContext.snippet) || (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || (sel == null ? void 0 : sel.toString()) || "";
-    if (!snippet.trim()) {
+    if (!sel || sel.rangeCount === 0)
       return null;
+    const range = sel.getRangeAt(0);
+    let container = range.commonAncestorContainer;
+    while (container && container.nodeType !== 1) {
+      container = container.parentElement;
     }
-    const contextElement = (selectionContext == null ? void 0 : selectionContext.element) || null;
-    return {
-      snippet,
-      contextElement,
-      contextText: contextElement ? this.getElementText(contextElement) : null,
-      occurrenceIndex: this.getSelectionOccurrence(view, contextElement)
-    };
+    const viewContainer = (_a = this.getActiveReadingView()) == null ? void 0 : _a.containerEl;
+    while (container && container !== viewContainer) {
+      const tag = container.tagName.toLowerCase();
+      if (["p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "div", "blockquote", "pre"].includes(tag)) {
+        return container;
+      }
+      container = container.parentElement;
+    }
+    if (container)
+      return container;
+    return null;
   }
   getSelectionOccurrence(view, contextElement) {
     if (!contextElement)
@@ -1894,20 +1556,17 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
   async highlightSelection(view, selectionSnapshot) {
     var _a;
     const sel = window.getSelection();
-    const request = this.buildSelectionRequest(view, selectionSnapshot);
-    if (!request) {
+    const snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || (sel == null ? void 0 : sel.toString()) || "";
+    if (!snippet.trim()) {
       new import_obsidian5.Notice("No text selected.");
       return;
     }
     const scrollPos = getScroll(view);
     await this.saveUndoState(view.file);
-    const result = await this.logic.locateSelection(
-      view.file,
-      view,
-      request.snippet,
-      request.contextText,
-      request.occurrenceIndex
-    );
+    const contextEl = this.getSelectionContext();
+    const contextText = contextEl ? contextEl.innerText : null;
+    const occurrenceIndex = this.getSelectionOccurrence(view, contextEl);
+    const result = await this.logic.locateSelection(view.file, view, snippet, contextText, occurrenceIndex);
     if (!result) {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
@@ -1936,20 +1595,18 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     await this.applyColorHighlight(view, palette.color, palette.tag, selectionSnapshot);
   }
   async tagSelection(view, selectionSnapshot) {
-    const request = this.buildSelectionRequest(view, selectionSnapshot);
-    if (!request) {
+    const sel = window.getSelection();
+    const snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || (sel == null ? void 0 : sel.toString()) || "";
+    if (!snippet.trim()) {
       new import_obsidian5.Notice("No text selected.");
       return;
     }
     const scrollPos = getScroll(view);
     await this.saveUndoState(view.file);
-    const result = await this.logic.locateSelection(
-      view.file,
-      view,
-      request.snippet,
-      request.contextText,
-      request.occurrenceIndex
-    );
+    const contextEl = this.getSelectionContext();
+    const contextText = contextEl ? contextEl.innerText : null;
+    const occurrenceIndex = this.getSelectionOccurrence(view, contextEl);
+    const result = await this.logic.locateSelection(view.file, view, snippet, contextText, occurrenceIndex);
     if (!result) {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
@@ -1980,19 +1637,17 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
   }
   // Annotate selection with footnote
   async annotateSelection(view, selectionSnapshot) {
-    const request = this.buildSelectionRequest(view, selectionSnapshot);
-    if (!request) {
+    const sel = window.getSelection();
+    const snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || (sel == null ? void 0 : sel.toString()) || "";
+    if (!snippet.trim()) {
       new import_obsidian5.Notice("No text selected.");
       return;
     }
     const scrollPos = getScroll(view);
-    const result = await this.logic.locateSelection(
-      view.file,
-      view,
-      request.snippet,
-      request.contextText,
-      request.occurrenceIndex
-    );
+    const contextEl = this.getSelectionContext();
+    const contextText = contextEl ? contextEl.innerText : null;
+    const occurrenceIndex = this.getSelectionOccurrence(view, contextEl);
+    const result = await this.logic.locateSelection(view.file, view, snippet, contextText, occurrenceIndex);
     if (!result) {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
@@ -2034,20 +1689,17 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
   }
   async removeHighlightSelection(view, selectionSnapshot) {
     const sel = window.getSelection();
-    const request = this.buildSelectionRequest(view, selectionSnapshot);
-    if (!request) {
+    const snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || (sel == null ? void 0 : sel.toString()) || "";
+    if (!snippet.trim()) {
       new import_obsidian5.Notice("Select highlighted text to remove.");
       return;
     }
     const scrollPos = getScroll(view);
     await this.saveUndoState(view.file);
-    const result = await this.logic.locateSelection(
-      view.file,
-      view,
-      request.snippet,
-      request.contextText,
-      request.occurrenceIndex
-    );
+    const contextEl = this.getSelectionContext();
+    const contextText = contextEl ? contextEl.innerText : null;
+    const occurrenceIndex = this.getSelectionOccurrence(view, contextEl);
+    const result = await this.logic.locateSelection(view.file, view, snippet, contextText, occurrenceIndex);
     if (!result) {
       new import_obsidian5.Notice("Could not locate selection in file.");
       return;
@@ -2083,45 +1735,34 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     }
   }
   async copyAsQuote(view, selectionSnapshot) {
-    var _a;
     const sel = window.getSelection();
-    const request = this.buildSelectionRequest(view, selectionSnapshot);
-    if (!request) {
+    const snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || (sel == null ? void 0 : sel.toString()) || "";
+    if (!snippet.trim()) {
       new import_obsidian5.Notice("No text selected.");
       return;
     }
-    const quotedText = request.snippet.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
-    const frontmatter = ((_a = this.app.metadataCache.getFileCache(view.file)) == null ? void 0 : _a.frontmatter) || {};
-    const quote = this.expandQuoteTemplate(view.file, quotedText, frontmatter);
-    const copied = await this.writeClipboardText(quote);
-    if (!copied) {
-      new import_obsidian5.Notice("Failed to copy quote.");
-      return;
-    }
+    const quotedText = snippet.split("\n").map((l) => `> ${l}`).join("\n");
+    let quote = this.settings.quoteTemplate.replace("{{text}}", quotedText).replace("{{file}}", view.file.basename).replace("{{path}}", view.file.path).replace("{{date}}", window.moment ? window.moment().format("YYYY-MM-DD") : (/* @__PURE__ */ new Date()).toISOString().split("T")[0]);
+    await navigator.clipboard.writeText(quote);
     new import_obsidian5.Notice("Copied as quote!");
     sel == null ? void 0 : sel.removeAllRanges();
   }
   async applyColorHighlight(view, color, autoTag = "", selectionSnapshot) {
     const sel = window.getSelection();
-    const request = this.buildSelectionRequest(view, selectionSnapshot);
-    if (!request)
+    const snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || (sel == null ? void 0 : sel.toString()) || "";
+    if (!snippet.trim())
       return;
     const scrollPos = getScroll(view);
     await this.saveUndoState(view.file);
-    const result = await this.logic.locateSelection(
-      view.file,
-      view,
-      request.snippet,
-      request.contextText,
-      request.occurrenceIndex
-    );
+    const contextEl = this.getSelectionContext();
+    const contextText = contextEl ? contextEl.innerText : null;
+    const occurrenceIndex = this.getSelectionOccurrence(view, contextEl);
+    const result = await this.logic.locateSelection(view.file, view, snippet, contextText, occurrenceIndex);
     if (!result) {
       new import_obsidian5.Notice("Could not locate selection.");
       return;
     }
-    const targetFile = result.file;
-    await this.saveUndoState(targetFile);
-    await this.applyMarkdownModification(targetFile, result.raw, result.start, result.end, "color", color, autoTag);
+    await this.applyMarkdownModification(view.file, result.raw, result.start, result.end, "color", color, autoTag);
     this.restoreScroll(view, scrollPos);
     sel == null ? void 0 : sel.removeAllRanges();
     new import_obsidian5.Notice("Highlighted!");
@@ -2160,127 +1801,6 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
     });
     this.app.workspace.revealLeaf(leaf);
   }
-  expandQuoteTemplate(file, quotedText, frontmatter = {}) {
-    const sourceUrl = String(frontmatter.url || frontmatter.source || frontmatter.link || "").replace(/#:~:text=[^&]+(&|$)/, "");
-    const timestamp = this.formatTimestamp(/* @__PURE__ */ new Date());
-    const variables = {
-      text: quotedText,
-      file: file.basename,
-      path: file.path,
-      date: timestamp.split("T")[0],
-      time: timestamp,
-      domain: this.extractDomain(sourceUrl),
-      author: this.normalizeFrontmatterValue(frontmatter.author || frontmatter.authors || frontmatter.creator || "")
-    };
-    return this.settings.quoteTemplate.replace(/{{(text|file|path|date|time|domain|author)}}/g, (_, key) => variables[key] || "");
-  }
-  async writeClipboardText(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch (_error) {
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      textArea.style.position = "fixed";
-      textArea.style.opacity = "0";
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      let copied = false;
-      try {
-        copied = document.execCommand("copy");
-      } catch (_fallbackError) {
-        copied = false;
-      }
-      textArea.remove();
-      return copied;
-    }
-  }
-  formatTimestamp(date) {
-    const pad = (value) => String(Math.trunc(Math.abs(value))).padStart(2, "0");
-    const offsetMinutes = -date.getTimezoneOffset();
-    const sign = offsetMinutes >= 0 ? "+" : "-";
-    const offsetHours = pad(offsetMinutes / 60);
-    const offsetRemainder = pad(offsetMinutes % 60);
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${offsetHours}:${offsetRemainder}`;
-  }
-  extractDomain(url) {
-    if (!url)
-      return "";
-    try {
-      const parsed = new URL(url);
-      const hostname = parsed.hostname;
-      if (hostname === "localhost" || hostname === "127.0.0.1" || /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) {
-        return hostname;
-      }
-      const hostParts = hostname.split(".");
-      if (hostParts.length > 2) {
-        const lastTwo = hostParts.slice(-2).join(".");
-        if (/^(co|com|org|net|edu|gov|mil)\.[a-z]{2}$/i.test(lastTwo)) {
-          return hostParts.slice(-3).join(".");
-        }
-      }
-      return hostParts.slice(-2).join(".");
-    } catch (_error) {
-      return "";
-    }
-  }
-  normalizeFrontmatterValue(value) {
-    if (Array.isArray(value)) {
-      return value.map((item) => String(item).trim()).filter(Boolean).join(", ");
-    }
-    return String(value || "").trim();
-  }
-  splitMarkdownLine(line) {
-    const indentMatch = line.match(/^\s*/);
-    const indent = indentMatch ? indentMatch[0] : "";
-    let remainder = line.substring(indent.length);
-    let prefix = "";
-    const prefixPatterns = [
-      /^\[\^[^\]]+\]:\s*/,
-      /^>\s*/,
-      /^#{1,6}\s+/,
-      /^-\s\[[ xX]\]\s+/,
-      /^[-*+]\s+/,
-      /^\d{1,3}[.)]\s+/
-    ];
-    let matched = true;
-    while (matched && remainder) {
-      matched = false;
-      for (const pattern of prefixPatterns) {
-        const match = remainder.match(pattern);
-        if (match) {
-          prefix += match[0];
-          remainder = remainder.substring(match[0].length);
-          matched = true;
-          break;
-        }
-      }
-    }
-    return { indent, prefix, content: remainder };
-  }
-  getLineStart(raw, offset) {
-    const lineBreak = raw.lastIndexOf("\n", Math.max(0, offset - 1));
-    return lineBreak === -1 ? 0 : lineBreak + 1;
-  }
-  getLineEnd(raw, offset) {
-    const lineBreak = raw.indexOf("\n", offset);
-    return lineBreak === -1 ? raw.length : lineBreak;
-  }
-  needsYamlQuotes(value) {
-    const trimmedValue = String(value || "").trim();
-    return FRONTMATTER_NEEDS_QUOTES_RE.test(trimmedValue) || /^\d/.test(trimmedValue) || FRONTMATTER_RESERVED_RE.test(trimmedValue);
-  }
-  normalizeTagForComparison(tag) {
-    return String(tag || "").trim().replace(/^['"]|['"]$/g, "").replace(/^#/, "").replace(/\s+/g, "_");
-  }
-  formatFrontmatterTag(tag) {
-    const normalized = this.normalizeTagForComparison(tag);
-    if (!normalized) {
-      return "";
-    }
-    return this.needsYamlQuotes(normalized) ? `"${normalized.replace(/"/g, '\\"')}"` : normalized;
-  }
   async applyMarkdownModification(file, raw, start, end, mode, payload = "", autoTag = "") {
     if (!raw) {
       raw = await this.app.vault.read(file);
@@ -2307,20 +1827,14 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
         }
       }
       const following = raw.substring(expandedEnd);
-      const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\))/);
+      const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\)|\[\^[^\]]+\])/);
       if (matchForward) {
         expandedEnd += matchForward[0].length;
         expanded = true;
       }
     }
-    const initiallySelectedText = raw.substring(expandedStart, expandedEnd);
-    if (/\r?\n/.test(initiallySelectedText)) {
-      expandedStart = this.getLineStart(raw, expandedStart);
-      expandedEnd = this.getLineEnd(raw, expandedEnd);
-    }
     const selectedText = raw.substring(expandedStart, expandedEnd);
-    const newline = raw.includes("\r\n") ? "\r\n" : "\n";
-    const lines = selectedText.split(/\r?\n/);
+    const paragraphs = selectedText.split(/\r?\n\s*\r?\n/);
     let fullTag = "";
     const sanitizeTag = (t) => t.trim().replace(/^#/, "").replace(/\s+/g, "_");
     if (mode === "tag" && payload) {
@@ -2341,41 +1855,60 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
       const cleanAutoTag = sanitizeTag(autoTag);
       fullTag = fullTag ? `${fullTag} #${cleanAutoTag}` : `#${cleanAutoTag}`;
     }
-    const processedLines = lines.map((line) => {
-      let cleanLine = line.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, "");
-      if (mode === "highlight" || mode === "color" || mode === "tag" || mode === "remove") {
-        cleanLine = cleanLine.split("==").join("");
-      } else if (mode === "bold") {
-        cleanLine = cleanLine.split("**").join("");
-      } else if (mode === "italic") {
-        cleanLine = cleanLine.split("*").join("");
-      }
-      if (mode === "remove") {
-        return cleanLine;
-      }
-      const { indent, prefix, content } = this.splitMarkdownLine(cleanLine);
-      if (!content.trim()) {
-        return line;
-      }
-      const trimmedContent = content.trim();
-      const tagStr = fullTag ? `${fullTag} ` : "";
-      let wrappedContent = trimmedContent;
-      if (mode === "highlight" || mode === "tag") {
-        if (this.settings.enableColorHighlighting && this.settings.highlightColor) {
-          wrappedContent = `<mark style="background: ${this.settings.highlightColor}; color: black;">${trimmedContent}</mark>`;
-        } else {
-          wrappedContent = `==${trimmedContent}==`;
+    const processedParagraphs = paragraphs.map((paragraph) => {
+      if (!paragraph.trim())
+        return paragraph;
+      const lines = paragraph.split(/\r?\n/);
+      const processedLines = lines.map((line) => {
+        let cleanLine = line.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, "");
+        if (mode === "highlight" || mode === "color" || mode === "tag") {
+          cleanLine = cleanLine.split("==").join("");
+        } else if (mode === "bold") {
+          cleanLine = cleanLine.split("**").join("");
+        } else if (mode === "italic") {
+          cleanLine = cleanLine.split("*").join("");
+        } else if (mode === "remove") {
+          cleanLine = cleanLine.split("==").join("");
         }
-      } else if (mode === "color") {
-        wrappedContent = `<mark style="background: ${payload}; color: black;">${trimmedContent}</mark>`;
-      }
-      return `${indent}${prefix}${tagStr}${wrappedContent}`;
+        if (mode === "remove") {
+          return cleanLine;
+        }
+        const matchIndent = cleanLine.match(/^(\s*)/);
+        const indent = matchIndent ? matchIndent[0] : "";
+        const contentAfterIndent = cleanLine.substring(indent.length);
+        const prefixRegex = /^((?:#{1,6}\s+)|(?:[-*+]\s+)|(?:\d+\.\s+)|(?:>\s+)|(?:-\s\[[ x]\]\s+))/;
+        const matchPrefix = contentAfterIndent.match(prefixRegex);
+        let prefix = "";
+        let content = contentAfterIndent;
+        if (matchPrefix) {
+          prefix = matchPrefix[0];
+          content = contentAfterIndent.substring(prefix.length);
+        }
+        content = content.trim();
+        if (!content) {
+          return `${indent}${prefix}`.trimEnd();
+        }
+        const tagStr = fullTag ? `${fullTag} ` : "";
+        let wrappedContent = content;
+        if (mode === "highlight" || mode === "tag") {
+          if (this.settings.enableColorHighlighting && this.settings.highlightColor) {
+            wrappedContent = `<mark style="background: ${this.settings.highlightColor}; color: black;">${content}</mark>`;
+          } else {
+            wrappedContent = `==${content}==`;
+          }
+        } else if (mode === "color") {
+          wrappedContent = `<mark style="background: ${payload}; color: black;">${content}</mark>`;
+        }
+        return `${indent}${prefix}${tagStr}${wrappedContent}`;
+      });
+      return processedLines.join("\n");
     });
-    const replaceBlock = processedLines.join(newline);
+    const newline = raw.includes("\r\n") ? "\r\n" : "\n";
+    const replaceBlock = processedParagraphs.join(newline + newline);
     const newContent = raw.substring(0, expandedStart) + replaceBlock + raw.substring(expandedEnd);
     await this.app.vault.modify(file, newContent);
     if (mode !== "remove" && this.settings.enableFrontmatterTag && this.settings.frontmatterTag) {
-      const targetTag = this.formatFrontmatterTag(this.settings.frontmatterTag);
+      const targetTag = this.settings.frontmatterTag.trim().replace(/\s+/g, "_").replace(/^#/, "");
       if (targetTag) {
         try {
           await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -2384,13 +1917,12 @@ var ReadingHighlighterPlugin = class extends import_obsidian5.Plugin {
               return;
             }
             if (Array.isArray(frontmatter.tags)) {
-              const existingTags = frontmatter.tags.map((tag) => this.normalizeTagForComparison(tag));
-              if (!existingTags.includes(this.normalizeTagForComparison(targetTag))) {
+              if (!frontmatter.tags.includes(targetTag)) {
                 frontmatter.tags.push(targetTag);
               }
             } else if (typeof frontmatter.tags === "string") {
               const existingTags = frontmatter.tags.includes(",") ? frontmatter.tags.split(",").map((t) => t.trim()) : frontmatter.tags.split(/\s+/).map((t) => t.trim());
-              const cleanTags = existingTags.filter((tag) => this.normalizeTagForComparison(tag) !== this.normalizeTagForComparison(targetTag) && tag !== "");
+              const cleanTags = existingTags.filter((t) => t.replace(/^#/, "") !== targetTag && t !== "");
               if (cleanTags.length === existingTags.length) {
                 frontmatter.tags = [...cleanTags, targetTag];
               }
@@ -2459,12 +1991,8 @@ var ReadingHighlighterSettingTab = class extends import_obsidian5.PluginSettingT
       this.plugin.settings.enableSmartTagSuggestions = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian5.Setting(containerEl).setName("Enable Smart Paragraph Selection").setDesc("Snap selections inside a paragraph, list item, heading, or blockquote to the entire block.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableSmartParagraphSelection).onChange(async (value) => {
-      this.plugin.settings.enableSmartParagraphSelection = value;
-      await this.plugin.saveSettings();
-    }));
     containerEl.createEl("h3", { text: "Quote Template" });
-    new import_obsidian5.Setting(containerEl).setName("Quote Format").setDesc("Template for copying text as quote. Variables: {{text}}, {{file}}, {{path}}, {{date}}, {{time}}, {{domain}}, {{author}}").addTextArea((text) => text.setValue(this.plugin.settings.quoteTemplate).onChange(async (value) => {
+    new import_obsidian5.Setting(containerEl).setName("Quote Format").setDesc("Template for copying text as quote. Variables: {{text}}, {{file}}, {{path}}, {{date}}").addTextArea((text) => text.setValue(this.plugin.settings.quoteTemplate).onChange(async (value) => {
       this.plugin.settings.quoteTemplate = value;
       await this.plugin.saveSettings();
     }));
