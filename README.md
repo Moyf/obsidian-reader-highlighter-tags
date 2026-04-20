@@ -12,108 +12,54 @@ Designed for power users who read long-form content in Obsidian, this plugin all
 
 ---
 
-## ✨ Features
+## Core Features
 
-### 🖍️ Smart Highlighting & Colors
-Select text in Reading View to see the floating toolbar.
-- **Context Aware**: Works perfectly with lists, blockquotes, and indented blocks.
-- **Smart Expansion**: Automatically expands selections to capture whole words or existing markers to prevent messy formatting.
-- **Color Palette**: Choose from **5 customizable colors** directly from the toolbar. Each color can have a specific meaning (e.g., Yellow for "Important", Blue for "Question") and can even apply an automatic tag.
-- **Standard & Custom**: Supports both standard Obsidian highlighting (`==text==`) and persistent color highlighting (HTML `<mark>` tags) that retain their look across themes.
+### High-Precision Selection Engine
+The plugin utilizes a custom "Noise Shield" structural filtering engine. This system strips non-visible Markdown syntax—including footnotes, task checkboxes, callout headers, and internal HTML tags—from the virtual content before matching. This ensures that text selected in the browser precisely correlates with the physical coordinates in the source file.
 
-<p align="center">
-  <img width="1644" height="1002" alt="Settings" src="https://github.com/user-attachments/assets/e575b4fe-c31f-4660-9a09-003494d2cfc5" />
-</p>
+- **Coordinate Mapping**: Handles complex document transformations, including transclusions and embedded files, to accurately inject markers into the underlying Markdown.
+- **Literal Character Support**: Sophisticated regex gap patterns preserve literal characters like brackets, asterisks, and dollar signs, ensuring that technical notes (math formulas, regex strings) are highlighted with 100% accuracy.
+- **Anchor Matching**: Large multi-paragraph selections are located using a dual-anchor strategy (start and end chunks), providing resilience against structural anomalies in long blocks.
 
-### 📝 Footnote Annotations
-Add comments to your highlights without cluttering the text.
-- **Seamless Notes**: Click the **Annotation** button to add a comment.
-- **Footnote Format**: Comments are automatically added as standard Markdown footnotes (`[^1]: My comment`) at the bottom of your document.
-- **Non-Intrusive**: Keeps your reading flow uninterrupted while capturing your thoughts.
+### Smart Content Handling
+- **Callout Blocks**: Automatically recognizes Obsidian callout prefixes (e.g., `> [!INFO]`). Highlights are applied to the inner content without corrupting the callout syntax.
+- **Native HTML Blocks**: Capable of matching text within raw HTML `div` or `span` tags by stripping structural tags from the search buffer.
+- **Smart Expansion**: Selection boundaries automatically expand to whole words or detect existing markers to prevent fragmented formatting.
 
-### 🏷️ Powerful Tagging
-- **Multi-Select Modal**: Click the **Tag Icon** to open a fuzzy-search modal to apply multiple tags at once.
-- **Smart Suggestions**: The plugin intelligently suggests tags based on:
-    - **Recent Tags**: Your most frequently used tags.
-    - **Folder Context**: Suggests tags based on the folder name (e.g., reading in `Books/` suggests `#books`).
-    - **Frontmatter**: Suggests tags already used in the file's frontmatter.
-- **Auto-Tagging**: Option to set a "Default Tag Prefix" that is automatically applied to every highlight.
+### Tagging and Metadata
+- **Frontmatter Integration**: Optionally applies highlight tags directly to the note's YAML frontmatter. Existing tags are checked to prevent duplicates.
+- **Contextual Suggestions**: Fuzzy-search tagging modal suggests tags based on recent usage, folder names, and existing file metadata.
+- **Auto-Tagging**: Customizable default prefixes can be applied to every highlight automatically.
 
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/d72ea80d-6c09-4afa-9493-783cd01d598b" controls="controls"></video>
-</div>
+### Workflow Tools
+- **Highlight Navigator**: A dedicated sidebar view provides an overview of all highlights in the active document. Clicking a highlight scrolls the view to its exact context.
+- **Erase Highlight**: A "sweep-and-clean" utility that removes highlighting markers from the selected range, even if the selection spans multiple paragraphs or non-highlighted gaps.
+- **Footnote Annotations**: Captures comments as standard Markdown footnotes appended to the bottom of the document.
+- **Quote Templates**: Customizable templates for copying text as formatted blockquotes with metadata variables (date, file path, original context).
 
-### 🗂️ Highlight Navigator
-A dedicated sidebar view to manage your reading session.
-- **Overview**: See a list of all highlights in the current document, organized by position.
-- **Color Indicators**: Visual indicators show which color was used for each highlight.
-- **Jump to Context**: Click any highlight in the list to instantly scroll to that location in the document.
-- **Export**: One-click button to export all highlights to a separate Markdown file.
+### UI and Performance
+- **Floating Toolbar**: A glassmorphism-inspired toolbar that appears at the point of selection or at fixed screen positions (top, bottom, left, right).
+- **Mobile Optimization**: includes haptic feedback, keyboard-aware modals, and long-press shortcuts for mobile reading efficiency.
+- **Performance**: Optimized for large documents with a safe regex execution model to prevent browser freezes.
 
-### 🛠️ Floating Toolbar
-The toolbar appears instantly and intelligently when you select text.
-- **Glassmorphism Design**: sleek, individual glass-effect buttons that don't obstruct your text.
-- **Flexible Positioning**: Choose where it appears:
-    - **Next to Text**: Follows your selection dynamically.
-    - **Fixed Positions**: Top, Bottom, Left, or Right of the screen for consistent access.
-- **Mobile Optimized**:
-    - **Gestures**: Long-press text to highlight immediately.
-    - **Smart UI**: Annotation modal automatically dodges the keyboard on mobile.
-    - **Haptics**: Subtle vibration feedback on actions.
-- **Customizable**: Toggle visibility for individual buttons (Tag, Quote, Remove, Annotation) and enable/disable tooltips.
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/33e95fd7-f3fa-4bf7-a006-01c226b14662" alt="location_buttons" />
-</p>
-
-### 📥 Export & Management
-- **Export to Markdown**: Create a summary note of all your highlights, properly linked back to the source.
-- **Batch Remove**: Command to strip all highlights from a document instantly.
-- **Cleanup**: Smart "Remove Highlight" button cleanly strips styles without breaking surrounding text.
-
-### 📖 Reading Experience
-- **Progress Tracker**: Automatically remembers your scroll position for every file. Resume exactly where you left off.
-- **Undo Support**: Made a mistake? Use the "Undo last highlight" command to revert immediately.
-- **Quote Templates**: Copy text as a formatted blockquote with custom templates (variables: `{{text}}`, `{{file}}`, `{{date}}`, `{{path}}`).
-
----
-
-## ⚙️ Settings Guide
+## Settings
 
 ### Highlighting
-* **Enable Color Highlighting**: Use `<mark>` tags for permanent colors instead of `==`.
-* **Color Palette**: Configure your 5 quick-access colors and optional auto-tags for each.
+- **Color Highlighting**: Toggle between standard Obsidian `==` syntax and HTML `<mark>` tags for persistent, theme-independent colors.
+- **Color Palette**: Define five quick-access colors, each with its own optional automatic tag.
 
 ### Toolbar
-* **Toolbar Position**: Customize toolbar location (Text, Top, Bottom, Left, Right).
-* **Button Visibility**: Show/hide Tag, Quote, Remove, or Annotation buttons.
-* **Tooltips**: Toggle button tooltips on/off.
+- **Custom Positioning**: Set the toolbar to follow text or remain anchored to screen edges.
+- **Toggle Buttons**: Enable or disable specific actions (Tag, Quote, Erase, Annotate) based on your personal workflow.
 
-### Tags
-* **Default Tag Prefix**: Automatically add this tag to *every* highlight.
-* **Smart Suggestions**: Toggle contextual tag suggestions in the modal.
+### Integration
+- **Reading Progress**: Automatically tracks and restores the scroll position for every note in your vault.
+- **Hotkeys**: Comprehensive command registration for all core actions, including specific color application and navigator toggling.
 
-### Reading Progress
-* **Track Progress**: Enable/disable saving scroll positions.
-* **Clear Data**: Reset all saved reading positions.
+## Installation
 
-### Shortcuts
-* The plugin registers commands for almost every action, allowing you to set hotkeys for:
-    * Highlighting & Tagging
-    * Applying specific colors (1-5)
-    * Adding annotations
-    * Undoing the last action
-    * Opening the Navigator
-    * Exporting highlights
+### Manual Installation
+1. Download the latest release files (`main.js`, `manifest.json`, `styles.css`) from the GitHub releases page.
+2. Create a folder named `reader-highlighter-tags` in your vault's `.obsidian/plugins/` directory.
+3. Move the downloaded files into that folder.
 
----
-
-## 📦 Installation
-
-### Manually
-1.  Download the latest release (`main.js`, `manifest.json`, `styles.css`) from GitHub.
-2.  Create a folder named `reader-highlighter-tags` inside your `.obsidian/plugins/` directory.
-3.  Move the downloaded files into that folder.
-4.  Reload Obsidian and enable **Reader Highlighter Tags** in **Settings > Community Plugins**.
-
----
