@@ -10,7 +10,9 @@ Designed for power users who read long-form content in Obsidian, this plugin all
 dude the probglem is that when i paste this
 
 ### Video Tutorial
-<video src="videos/tutorial.mp4" width="100%" controls></video>
+
+https://github.com/user-attachments/assets/ba3172b3-4d6c-4ddf-b1fa-6b1145ab0e36
+
 ---
 
 ## Core Features
