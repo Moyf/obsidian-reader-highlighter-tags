@@ -1066,7 +1066,7 @@ export default class ReadingHighlighterPlugin extends Plugin {
         while (expanded) {
             expanded = false;
             const preceding = raw.substring(0, expandedStart);
-            const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]:?\s?|\[)$/);
+            const matchBack = preceding.match(/(<mark[^>]*>|\*\*|==|~~|\*|_|\[\[|\[\^[^\]]+\]:?\s?|[([{"'«“‘‹])$/);
             if (matchBack && expandedStart > bodyStart) {
                 const newStart = expandedStart - matchBack[0].length;
                 if (newStart >= bodyStart) {
@@ -1075,8 +1075,8 @@ export default class ReadingHighlighterPlugin extends Plugin {
                 }
             }
             const following = raw.substring(expandedEnd);
-            // Added '.' and '?' to the forward expansion to ensure trailing punctuation is captured
-            const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\)|\[\^[^\]]+\]|[.?!,;:](\s|$)?)/);
+            // Expanded to include balanced punctuation, quotes (including « »), and footnotes
+            const matchForward = following.match(/^(<\/mark>|\*\*|==|~~|\*|_|\]\]|\]\([^)]+\)|\[\^[^\]]+\]|[.?!,;:]["']?|[)\]}"'»”’›.?!,;:](\s|$)?)/);
             if (matchForward) {
                 expandedEnd += matchForward[0].length;
                 expanded = true;
