@@ -97,11 +97,11 @@ ${highlights.map((h, i) => `${i + 1}. ${h.text}`).join("\n\n")}
 export function getHighlightsFromContent(raw) {
     const highlights = [];
     const lines = raw.split("\n");
-    const markdownPattern = /==(.*?)==/g;
-    const htmlPattern = /<mark[^>]*>(.*?)<\/mark>/g;
-
     lines.forEach((line, lineIdx) => {
         let match;
+        const markdownPattern = /==(.*?)==/g;
+        const htmlPattern = /<mark[^>]*>(.*?)<\/mark>/g;
+        
         while ((match = markdownPattern.exec(line)) !== null) {
             highlights.push({
                 text: match[1].trim(),

@@ -7,6 +7,7 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
@@ -23,6 +24,7 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // src/utils/export.js
 var export_exports = {};
@@ -96,10 +98,10 @@ ${highlights.map((h, i) => `${i + 1}. ${h.text}`).join("\n\n")}
 function getHighlightsFromContent(raw) {
   const highlights = [];
   const lines = raw.split("\n");
-  const markdownPattern = /==(.*?)==/g;
-  const htmlPattern = /<mark[^>]*>(.*?)<\/mark>/g;
   lines.forEach((line, lineIdx) => {
     let match;
+    const markdownPattern = /==(.*?)==/g;
+    const htmlPattern = /<mark[^>]*>(.*?)<\/mark>/g;
     while ((match = markdownPattern.exec(line)) !== null) {
       highlights.push({
         text: match[1].trim(),
@@ -225,7 +227,7 @@ var init_canvas = __esm({
   }
 });
 
-// src/main.js
+// src/main.ts
 var main_exports = {};
 __export(main_exports, {
   default: () => ReadingHighlighterPlugin
@@ -281,8 +283,7 @@ var FloatingManager = class {
     this.registerEvents();
   }
   createElements() {
-    if (this.containerEl)
-      return;
+    if (this.containerEl) return;
     this.containerEl = document.createElement("div");
     this.containerEl.addClass("reading-highlighter-float-container");
     this.highlightBtn = this.createButton("highlighter", "Highlight selection");
@@ -338,15 +339,14 @@ var FloatingManager = class {
       evt.stopPropagation();
     };
     const attachAction = (btn, actionName) => {
-      if (!btn)
-        return;
+      if (!btn) return;
       const handler = (evt) => {
         preventFocus(evt);
-        const { View } = require("obsidian");
+        const { View: View2 } = require("obsidian");
         let view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
         let isPdf = false;
         if (!view || view.getMode() !== "preview") {
-          view = this.app.workspace.getActiveViewOfType(View);
+          view = this.app.workspace.getActiveViewOfType(View2);
           if (view && view.getViewType() === "pdf") {
             isPdf = true;
           } else {
@@ -372,8 +372,8 @@ var FloatingManager = class {
     if (this.extractAllBtn) {
       const handler = (evt) => {
         preventFocus(evt);
-        const { View } = require("obsidian");
-        const view = this.app.workspace.getActiveViewOfType(View);
+        const { View: View2 } = require("obsidian");
+        const view = this.app.workspace.getActiveViewOfType(View2);
         if (view && view.getViewType() === "pdf") {
           this.plugin.extractAllPdfText(view);
         }
@@ -385,11 +385,11 @@ var FloatingManager = class {
     this.colorButtons.forEach((btn, index) => {
       const handler = (evt) => {
         preventFocus(evt);
-        const { View } = require("obsidian");
+        const { View: View2 } = require("obsidian");
         let view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
         let isPdf = false;
         if (!view || view.getMode() !== "preview") {
-          view = this.app.workspace.getActiveViewOfType(View);
+          view = this.app.workspace.getActiveViewOfType(View2);
           if (view && view.getViewType() === "pdf") {
             isPdf = true;
           } else {
@@ -409,8 +409,7 @@ var FloatingManager = class {
     });
   }
   setupMobileGestures() {
-    if (!import_obsidian.Platform.isIosApp)
-      return;
+    if (!import_obsidian.Platform.isIosApp) return;
     document.addEventListener("touchstart", (e) => {
       this.longPressTimer = setTimeout(() => {
         const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
@@ -456,11 +455,11 @@ var FloatingManager = class {
   /** Internal: actually process the current selection state. */
   _doHandleSelection() {
     var _a;
-    const { View } = require("obsidian");
+    const { View: View2 } = require("obsidian");
     let view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
     let isPdf = false;
     if (!view || view.getMode() !== "preview") {
-      view = this.app.workspace.getActiveViewOfType(View);
+      view = this.app.workspace.getActiveViewOfType(View2);
       if (!view || view.getViewType() !== "pdf") {
         this.hide();
         return;
@@ -492,8 +491,7 @@ var FloatingManager = class {
     }
   }
   show(rect) {
-    if (!this.containerEl || !rect)
-      return;
+    if (!this.containerEl || !rect) return;
     this.containerEl.style.display = "flex";
     this.containerEl.style.top = "";
     this.containerEl.style.bottom = "";
@@ -512,10 +510,8 @@ var FloatingManager = class {
         if (top + containerHeight > window.innerHeight - 10) {
           top = rect.top - containerHeight - 60;
         }
-        if (top < 10)
-          top = 10;
-        if (left < 10)
-          left = 10;
+        if (top < 10) top = 10;
+        if (left < 10) left = 10;
         if (left + containerWidth > window.innerWidth - 10) {
           left = window.innerWidth - containerWidth - 10;
         }
@@ -524,12 +520,9 @@ var FloatingManager = class {
       } else {
         let top = rect.top - containerHeight - 10;
         let left = rect.left + rect.width / 2 - containerWidth / 2;
-        if (top < 10)
-          top = rect.bottom + 10;
-        if (left < 10)
-          left = 10;
-        if (left + containerWidth > window.innerWidth - 10)
-          left = window.innerWidth - containerWidth - 10;
+        if (top < 10) top = rect.bottom + 10;
+        if (left < 10) left = 10;
+        if (left + containerWidth > window.innerWidth - 10) left = window.innerWidth - containerWidth - 10;
         this.containerEl.style.top = `${top}px`;
         this.containerEl.style.left = `${left}px`;
       }
@@ -1381,15 +1374,13 @@ var SelectionLogic = class {
    */
   findHybridCandidates(text, snippet, bodyStart = 0) {
     const needle = this.normalizeForFuzzySearch(snippet);
-    if (!needle)
-      return [];
+    if (!needle) return [];
     const { normalized, map } = this.buildHybridMap(text);
     const candidates = [];
     let fromIndex = 0;
     while (fromIndex < normalized.length) {
       const matchIdx = normalized.indexOf(needle, fromIndex);
-      if (matchIdx === -1)
-        break;
+      if (matchIdx === -1) break;
       const rawStart = map[matchIdx];
       const rawEnd = map[matchIdx + needle.length - 1] + 1;
       if (rawStart >= bodyStart) {
@@ -1517,8 +1508,7 @@ var SelectionLogic = class {
    */
   findProximityCandidates(text, snippet, bodyStart = 0) {
     const words = snippet.split(/\s+/).filter((w) => w.length > 2).map((w) => w.toLocaleLowerCase());
-    if (words.length < 3)
-      return [];
+    if (words.length < 3) return [];
     const lowerText = text.toLocaleLowerCase();
     const hits = [];
     for (const word of words) {
@@ -1528,8 +1518,7 @@ var SelectionLogic = class {
         idx = lowerText.indexOf(word, idx + 1);
       }
     }
-    if (hits.length === 0)
-      return [];
+    if (hits.length === 0) return [];
     hits.sort((a, b) => a.offset - b.offset);
     const candidates = [];
     const windowSize = snippet.length * 2.5;
@@ -1591,10 +1580,8 @@ var SelectionLogic = class {
       const best = candidates[0];
       let start = best.start;
       let end = best.end;
-      while (start > 0 && bodyContent[start - 1] !== "\n")
-        start--;
-      while (end < bodyContent.length && bodyContent[end] !== "\n")
-        end++;
+      while (start > 0 && bodyContent[start - 1] !== "\n") start--;
+      while (end < bodyContent.length && bodyContent[end] !== "\n") end++;
       report.bestGuessContext = bodyContent.substring(start, end).trim();
     } else {
       report.bestGuessContext = rawSnippet;
@@ -1859,8 +1846,7 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
     ];
     modes.forEach((m) => {
       const btn = btnGroup.createEl("button", { text: m.label, cls: "nav-btn" });
-      if (this.viewMode === m.value)
-        btn.addClass("is-active");
+      if (this.viewMode === m.value) btn.addClass("is-active");
       btn.onclick = () => {
         btnGroup.querySelectorAll(".nav-btn").forEach((el) => el.removeClass("is-active"));
         btn.addClass("is-active");
@@ -1957,8 +1943,7 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
   }
   renderList(container, items, type) {
     const filteredItems = items.filter((item) => {
-      if (!this.searchQuery)
-        return true;
+      if (!this.searchQuery) return true;
       return item.text.toLowerCase().includes(this.searchQuery);
     });
     if (filteredItems.length === 0) {
@@ -2030,8 +2015,7 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
     }
   }
   async exportHighlights() {
-    if (!this.currentFile)
-      return;
+    if (!this.currentFile) return;
     try {
       const { exportHighlightsToMD: exportHighlightsToMD2 } = await Promise.resolve().then(() => (init_export(), export_exports));
       const exportPath = await exportHighlightsToMD2(this.app, this.currentFile);
@@ -2044,8 +2028,7 @@ var HighlightNavigatorView = class extends import_obsidian4.ItemView {
     }
   }
   async exportCurrentFileToCanvas() {
-    if (!this.currentFile)
-      return;
+    if (!this.currentFile) return;
     try {
       const { exportHighlightsToCanvas: exportHighlightsToCanvas2 } = await Promise.resolve().then(() => (init_canvas(), canvas_exports));
       const highlights = this.highlights.map((h) => ({
@@ -2204,8 +2187,7 @@ var ResearchView = class extends import_obsidian5.ItemView {
     if (this.plugin.settings.enableColorPalette) {
       const filterContainer = header.createDiv({ cls: "research-view-color-filters" });
       this.plugin.settings.semanticColors.forEach((colorItem) => {
-        if (!colorItem.meaning)
-          return;
+        if (!colorItem.meaning) return;
         const chip = filterContainer.createEl("button", {
           cls: "research-color-chip"
         });
@@ -2233,8 +2215,7 @@ var ResearchView = class extends import_obsidian5.ItemView {
     this.startScan();
   }
   async startScan() {
-    if (this.isScanning)
-      return;
+    if (this.isScanning) return;
     this.isScanning = true;
     this.progressContainer.style.display = "block";
     this.contentEl.empty();
@@ -2265,26 +2246,21 @@ var ResearchView = class extends import_obsidian5.ItemView {
     }
   }
   updatePropertySelector() {
-    if (!this.propertySelect)
-      return;
+    if (!this.propertySelect) return;
     const currentVal = this.filterKey;
     this.propertySelect.empty();
     const sortedKeys = Array.from(this.allPropertyKeys).sort((a, b) => {
-      if (a === "All Properties")
-        return -1;
-      if (b === "All Properties")
-        return 1;
+      if (a === "All Properties") return -1;
+      if (b === "All Properties") return 1;
       return a.localeCompare(b);
     });
     sortedKeys.forEach((key) => {
       const opt = this.propertySelect.createEl("option", { text: key, value: key });
-      if (key === currentVal)
-        opt.selected = true;
+      if (key === currentVal) opt.selected = true;
     });
   }
   renderContent() {
-    if (this.isScanning)
-      return;
+    if (this.isScanning) return;
     this.contentEl.empty();
     if (this.scanResults.length === 0) {
       this.contentEl.createDiv({
@@ -2305,8 +2281,7 @@ var ResearchView = class extends import_obsidian5.ItemView {
       allHighlights = allHighlights.filter((h) => {
         var _a;
         const val = (_a = h.frontmatter) == null ? void 0 : _a[this.filterKey];
-        if (val === void 0 || val === null)
-          return false;
+        if (val === void 0 || val === null) return false;
         if (this.filterKey === "tags" || this.filterKey === "tag") {
           if (Array.isArray(val)) {
             return val.some((t) => String(t).toLowerCase().replace(/^#/, "").includes(filterVal));
@@ -2326,8 +2301,7 @@ var ResearchView = class extends import_obsidian5.ItemView {
     }
     if (this.activeColors.size > 0) {
       allHighlights = allHighlights.filter((h) => {
-        if (!h.color)
-          return false;
+        if (!h.color) return false;
         return this.activeColors.has(h.color.toLowerCase());
       });
     }
@@ -2395,8 +2369,7 @@ var ResearchView = class extends import_obsidian5.ItemView {
     }
   }
   async exportToCanvas() {
-    if (this.isScanning)
-      return;
+    if (this.isScanning) return;
     let allHighlights = [];
     for (const res of this.scanResults) {
       for (const h of res.highlights) {
@@ -2408,8 +2381,7 @@ var ResearchView = class extends import_obsidian5.ItemView {
       allHighlights = allHighlights.filter((h) => {
         var _a;
         const val = (_a = h.frontmatter) == null ? void 0 : _a[this.filterKey];
-        if (val === void 0 || val === null)
-          return false;
+        if (val === void 0 || val === null) return false;
         if (this.filterKey === "tags" || this.filterKey === "tag") {
           if (Array.isArray(val)) {
             return val.some((t) => String(t).toLowerCase().replace(/^#/, "").includes(filterVal));
@@ -2429,8 +2401,7 @@ var ResearchView = class extends import_obsidian5.ItemView {
     }
     if (this.activeColors.size > 0) {
       allHighlights = allHighlights.filter((h) => {
-        if (!h.color)
-          return false;
+        if (!h.color) return false;
         return this.activeColors.has(h.color.toLowerCase());
       });
     }
@@ -2475,11 +2446,10 @@ function getFallbackScroll(view) {
 function setFallbackScroll(view, { y }) {
   var _a;
   const el = (_a = view.containerEl.querySelector(".markdown-reading-view")) != null ? _a : view.containerEl.querySelector(".markdown-preview-view");
-  if (el)
-    el.scrollTop = y;
+  if (el) el.scrollTop = y;
 }
 
-// src/main.js
+// src/main.ts
 init_export();
 
 // src/ui/FailureRecoveryModal.js
@@ -2568,23 +2538,16 @@ var FailureRecoveryModal = class extends import_obsidian6.Modal {
   deriveRule(rawSnippet, corrected) {
     let prefixLen = 0;
     const a = rawSnippet, b = corrected;
-    while (prefixLen < a.length && prefixLen < b.length && a[prefixLen] === b[prefixLen])
-      prefixLen++;
+    while (prefixLen < a.length && prefixLen < b.length && a[prefixLen] === b[prefixLen]) prefixLen++;
     let suffixLen = 0;
-    while (suffixLen < a.length - prefixLen && suffixLen < b.length - prefixLen && a[a.length - 1 - suffixLen] === b[b.length - 1 - suffixLen])
-      suffixLen++;
+    while (suffixLen < a.length - prefixLen && suffixLen < b.length - prefixLen && a[a.length - 1 - suffixLen] === b[b.length - 1 - suffixLen]) suffixLen++;
     const rawMiddle = a.substring(prefixLen, a.length - suffixLen);
     const correctedMiddle = b.substring(prefixLen, b.length - suffixLen);
-    if (!rawMiddle && !correctedMiddle)
-      return { error: "identical" };
-    if (!rawMiddle)
-      return { error: "corrected is longer than raw" };
-    if (/\p{L}/u.test(rawMiddle))
-      return { error: "contains letters without symbols" };
-    if (rawMiddle.length < 2)
-      return { error: "too minor" };
-    if (correctedMiddle.length > 0)
-      return { error: "substitution, not deletion" };
+    if (!rawMiddle && !correctedMiddle) return { error: "identical" };
+    if (!rawMiddle) return { error: "corrected is longer than raw" };
+    if (/\p{L}/u.test(rawMiddle)) return { error: "contains letters without symbols" };
+    if (rawMiddle.length < 2) return { error: "too minor" };
+    if (correctedMiddle.length > 0) return { error: "substitution, not deletion" };
     return { stripPattern: rawMiddle };
   }
   onClose() {
@@ -2593,7 +2556,7 @@ var FailureRecoveryModal = class extends import_obsidian6.Modal {
   }
 };
 
-// src/main.js
+// src/main.ts
 var SMART_SELECTION_TAGS = /* @__PURE__ */ new Set([
   "P",
   "LI",
@@ -2619,71 +2582,53 @@ var DEFAULT_SETTINGS = {
   showTagButton: true,
   showRemoveButton: true,
   showQuoteButton: true,
-  // NEW: Semantic Color Taxonomy (15 static colors)
   enableColorPalette: false,
   semanticColors: [
     { color: "#FFCDD2", meaning: "Important" },
-    // Red
     { color: "#F8BBD0", meaning: "" },
-    // Pink
     { color: "#E1BEE7", meaning: "" },
-    // Purple
     { color: "#D1C4E9", meaning: "" },
-    // Deep Purple
     { color: "#C5CAE9", meaning: "" },
-    // Indigo
     { color: "#BBDEFB", meaning: "Vocabulary" },
-    // Blue
     { color: "#B3E5FC", meaning: "" },
-    // Light Blue
     { color: "#B2EBF2", meaning: "" },
-    // Cyan
     { color: "#B2DFDB", meaning: "" },
-    // Teal
     { color: "#C8E6C9", meaning: "Key Concept" },
-    // Green
     { color: "#DCEDC8", meaning: "" },
-    // Light Green
     { color: "#F0F4C0", meaning: "" },
-    // Lime
     { color: "#FFF9C4", meaning: "General" },
-    // Yellow
     { color: "#FFECB3", meaning: "" },
-    // Amber
     { color: "#FFE0B2", meaning: "" }
-    // Orange
   ],
-  // NEW: Quote Template
   quoteTemplate: "> {{text}}\n>\n> \u2014 [[{{file}}]]",
-  // NEW: Annotations
   enableAnnotations: true,
   showAnnotationButton: true,
-  // NEW: Reading Progress
   enableReadingProgress: true,
   readingPositions: {},
-  // NEW: Smart Tags
   enableSmartTagSuggestions: true,
   recentTags: [],
   maxRecentTags: 10,
-  // NEW: Navigator
   showNavigatorButton: true,
-  // NEW: Tooltips (disabled by default)
   showTooltips: false,
-  // NEW: Frontmatter Auto-Tag
   enableFrontmatterTag: false,
   frontmatterTag: "resaltados",
-  // NEW: Smart paragraph snapping
   enableSmartParagraphSelection: false,
-  // NEW: Self-Learning Normalization Rules
   learnedNormRules: []
 };
 var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
+  constructor() {
+    super(...arguments);
+    __publicField(this, "settings");
+    __publicField(this, "floatingManager");
+    // We could type these better if we converted their files too
+    __publicField(this, "logic");
+    __publicField(this, "lastModification", null);
+    __publicField(this, "lastScrollPosition", null);
+  }
   async onload() {
     await this.loadSettings();
     this.floatingManager = new FloatingManager(this);
     this.logic = new SelectionLogic(this.app, () => this.settings.learnedNormRules);
-    this.lastModification = null;
-    this.lastScrollPosition = null;
     this.registerView(
       HIGHLIGHT_NAVIGATOR_VIEW,
       (leaf) => new HighlightNavigatorView(leaf, this)
@@ -2703,7 +2648,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       })
     );
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", (_leaf) => {
+      this.app.workspace.on("active-leaf-change", () => {
         if (this.settings.enableReadingProgress) {
           this.saveReadingProgress();
         }
@@ -2712,10 +2657,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
     if (import_obsidian7.Platform.isMobile) {
       const btn = this.addRibbonIcon("highlighter", "Highlight Selection", () => {
         const view = this.getActiveReadingView();
-        if (view)
-          this.highlightSelection(view);
-        else
-          new import_obsidian7.Notice("Open a note in Reading View first.");
+        if (view) this.highlightSelection(view);
+        else new import_obsidian7.Notice("Open a note in Reading View first.");
       });
       this.register(() => btn.remove());
     }
@@ -2731,10 +2674,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       hotkeys: [{ modifiers: ["Mod", "Shift"], key: "h" }],
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.highlightSelection(view);
         return true;
       }
@@ -2744,10 +2685,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       name: "Tag selection (Reading View)",
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.tagSelection(view);
         return true;
       }
@@ -2756,7 +2695,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       id: "extract-all-pdf-text",
       name: "Extract All Text from Current PDF",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(require("obsidian").View);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian7.View);
         if (view && view.getViewType() === "pdf") {
           if (!checking) {
             this.extractAllPdfText(view);
@@ -2772,10 +2711,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       hotkeys: [{ modifiers: ["Mod", "Shift"], key: "n" }],
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.annotateSelection(view);
         return true;
       }
@@ -2785,10 +2722,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       name: "Copy selection as quote (Reading View)",
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.copyAsQuote(view);
         return true;
       }
@@ -2798,10 +2733,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       name: "Remove highlight from selection (Reading View)",
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.removeHighlightSelection(view);
         return true;
       }
@@ -2832,10 +2765,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       name: "Export highlights to new note",
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.exportHighlights(view);
         return true;
       }
@@ -2845,10 +2776,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       name: "Remove all highlights from note",
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.removeAllHighlights(view);
         return true;
       }
@@ -2858,10 +2787,8 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       name: "Resume reading (jump to last position)",
       checkCallback: (checking) => {
         const view = this.getActiveReadingView();
-        if (!view)
-          return false;
-        if (checking)
-          return true;
+        if (!view) return false;
+        if (checking) return true;
         this.resumeReading(view);
         return true;
       }
@@ -2872,13 +2799,10 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
         name: `Apply highlight color ${i + 1}`,
         hotkeys: [{ modifiers: ["Mod", "Shift"], key: String(i + 1) }],
         checkCallback: (checking) => {
-          if (!this.settings.enableColorPalette)
-            return false;
+          if (!this.settings.enableColorPalette) return false;
           const view = this.getActiveReadingView();
-          if (!view)
-            return false;
-          if (checking)
-            return true;
+          if (!view) return false;
+          if (checking) return true;
           this.applyColorByIndex(view, i);
           return true;
         }
@@ -2902,22 +2826,25 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
     this.app.workspace.detachLeavesOfType(HIGHLIGHT_NAVIGATOR_VIEW);
   }
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    var _a;
+    const loaded = await this.loadData() || {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded, {
+      semanticColors: ((_a = loaded.semanticColors) == null ? void 0 : _a.length) ? loaded.semanticColors : DEFAULT_SETTINGS.semanticColors
+    });
   }
   async saveSettings() {
     await this.saveData(this.settings);
     this.floatingManager.refresh();
   }
   getActiveReadingView() {
-    const view = this.app.workspace.getActiveViewOfType(require("obsidian").MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     return view && view.getMode() === "preview" ? view : null;
   }
   getSelectionContext(selectionSnapshot) {
     var _a;
     const view = this.getActiveReadingView();
     const range = this.getSelectionRange(selectionSnapshot);
-    if (!view || !range)
-      return null;
+    if (!view || !range) return null;
     const blocks = this.getAllowedBlocksInRange(range, view.contentEl);
     const fallbackBlock = this.getClosestAllowedBlock(range.commonAncestorContainer, view.contentEl);
     const contextElement = blocks[0] || fallbackBlock || null;
@@ -2947,13 +2874,11 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
     return selection.getRangeAt(0).cloneRange();
   }
   getAllowedBlocksInRange(range, root) {
-    if (!root)
-      return [];
+    if (!root) return [];
     const selector = Array.from(SMART_SELECTION_TAGS).map((tag) => tag.toLowerCase()).join(", ");
     const blocks = Array.from(root.querySelectorAll(selector)).filter((element) => {
       const text = this.getElementText(element);
-      if (!text)
-        return false;
+      if (!text) return false;
       try {
         return range.intersectsNode(element);
       } catch (_error) {
@@ -2991,8 +2916,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
     };
   }
   getSelectionOccurrence(view, contextElement) {
-    if (!contextElement)
-      return 0;
+    if (!contextElement) return 0;
     const contextText = contextElement.innerText.trim();
     const tagName = contextElement.tagName.toLowerCase();
     const allElements = view.contentEl.querySelectorAll(tagName);
@@ -3010,14 +2934,12 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
     }
     return foundIndex;
   }
-  // Save state for undo
   async saveUndoState(file) {
     this.lastModification = {
       file,
       original: await this.app.vault.read(file)
     };
   }
-  // Undo last highlight
   async undoLastHighlight() {
     if (!this.lastModification) {
       new import_obsidian7.Notice("Nothing to undo.");
@@ -3044,7 +2966,6 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
       return;
     }
     const scrollPos = getScroll(view);
-    await this.saveUndoState(view.file);
     const result = await this.logic.locateSelection(
       view.file,
       view,
@@ -3072,22 +2993,17 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
     }
     new import_obsidian7.Notice("Highlighted!");
   }
-  // Apply color by palette index
   async applyColorByIndex(view, index, selectionSnapshot) {
-    if (index < 0 || index >= this.settings.semanticColors.length)
-      return;
+    if (index < 0 || index >= this.settings.semanticColors.length) return;
     const palette = this.settings.semanticColors[index];
     await this.applyColorHighlight(view, palette.color, "", selectionSnapshot);
   }
-  // PDF Companion Note Storage
   async savePdfHighlight(view, selectionSnapshot, mode, payload) {
     var _a, _b, _c;
-    if (!view.file)
-      return;
+    if (!view.file) return;
     let snippet = (selectionSnapshot == null ? void 0 : selectionSnapshot.text) || ((_a = window.getSelection()) == null ? void 0 : _a.toString()) || "";
     if (!snippet.trim()) {
-      const { Notice: Notice3 } = require("obsidian");
-      new Notice3("No text selected.");
+      new import_obsidian7.Notice("No text selected.");
       return;
     }
     snippet = this.sanitizePdfText(snippet);
@@ -3118,8 +3034,7 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
 
 `;
     try {
-      const { Notice: Notice3 } = require("obsidian");
-      if (fileExists) {
+      if (fileExists instanceof import_obsidian7.TFile) {
         const fileContent = await this.app.vault.read(fileExists);
         await this.app.vault.modify(fileExists, fileContent + "\n" + appendString);
       } else {
@@ -3128,21 +3043,18 @@ var ReadingHighlighterPlugin = class extends import_obsidian7.Plugin {
 ${appendString}`;
         await this.app.vault.create(companionFile, fileContent);
       }
-      new Notice3("Saved to " + pdfName + " - Highlights");
+      new import_obsidian7.Notice("Saved to " + pdfName + " - Highlights");
       (_b = window.getSelection()) == null ? void 0 : _b.removeAllRanges();
-      const { Platform: Platform3 } = require("obsidian");
-      if (this.settings.enableHaptics && Platform3.isMobile) {
+      if (this.settings.enableHaptics && import_obsidian7.Platform.isMobile) {
         (_c = navigator.vibrate) == null ? void 0 : _c.call(navigator, 10);
       }
     } catch (e) {
       console.error("Failed to save PDF highlight", e);
-      const { Notice: Notice3 } = require("obsidian");
-      new Notice3("Failed to save PDF highlight");
+      new import_obsidian7.Notice("Failed to save PDF highlight");
     }
   }
   sanitizePdfText(text) {
-    if (!text)
-      return text;
+    if (!text) return text;
     let sanitized = text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ");
     sanitized = sanitized.replace(/(\w)-\n(\w)/g, "$1$2");
     sanitized = sanitized.replace(/\n\n+/g, "[[PAR_BREAK]]");
@@ -3154,11 +3066,11 @@ ${appendString}`;
   }
   async extractAllPdfText(view) {
     if (!view || view.getViewType() !== "pdf" || !view.file) {
-      new Notice3("Please open a PDF file first.");
+      new import_obsidian7.Notice("Please open a PDF file first.");
       return;
     }
-    const { Notice: Notice3, loadPdfJs } = require("obsidian");
-    const notice = new Notice3("Extracting all PDF text...", 0);
+    const loadPdfJs = require("obsidian").loadPdfJs;
+    const notice = new import_obsidian7.Notice("Extracting all PDF text...", 0);
     try {
       const pdfjs = await loadPdfJs();
       const buffer = await this.app.vault.readBinary(view.file);
@@ -3168,7 +3080,6 @@ ${appendString}`;
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        const strings = content.items.map((item) => item.str);
         let lastY = -1;
         let pageText = "";
         for (const item of content.items) {
@@ -3181,17 +3092,16 @@ ${appendString}`;
           lastY = item.transform[5];
         }
         fullText += pageText + "\n\n";
-        if (i % 10 === 0)
-          notice.setMessage(`Extracting text... Page ${i}/${pdf.numPages}`);
+        if (i % 10 === 0) notice.setMessage(`Extracting text... Page ${i}/${pdf.numPages}`);
       }
       const dummySnapshot = { text: fullText };
       await this.savePdfHighlight(view, dummySnapshot, "action", "highlightSelection");
       notice.hide();
-      new Notice3(`Successfully extracted ${pdf.numPages} pages.`);
+      new import_obsidian7.Notice(`Successfully extracted ${pdf.numPages} pages.`);
     } catch (e) {
       console.error("Full PDF extraction failed", e);
       notice.hide();
-      new Notice3("Failed to extract PDF text.");
+      new import_obsidian7.Notice("Failed to extract PDF text.");
     }
   }
   async tagSelection(view, selectionSnapshot) {
@@ -3201,7 +3111,6 @@ ${appendString}`;
       return;
     }
     const scrollPos = getScroll(view);
-    await this.saveUndoState(view.file);
     const result = await this.logic.locateSelection(
       view.file,
       view,
@@ -3217,27 +3126,35 @@ ${appendString}`;
     await this.saveUndoState(targetFile);
     new TagSuggestModal(this, async (tag) => {
       var _a;
+      const newResult = await this.logic.locateSelection(
+        view.file,
+        view,
+        request.snippet,
+        request.contextText,
+        request.occurrenceIndex
+      );
+      if (!newResult) {
+        new import_obsidian7.Notice("Selection lost - file may have changed.");
+        return;
+      }
       if (tag && this.settings.enableSmartTagSuggestions) {
         this.addRecentTag(tag);
       }
-      await this.applyMarkdownModification(targetFile, "", result.start, result.end, "tag", tag);
+      await this.applyMarkdownModification(targetFile, "", newResult.start, newResult.end, "tag", tag);
       this.restoreScroll(view, scrollPos);
       (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
     }).open();
   }
-  // Add to recent tags
   addRecentTag(tag) {
     const cleanTag = tag.replace(/^#/, "").trim();
-    if (!cleanTag)
-      return;
+    if (!cleanTag) return;
     this.settings.recentTags = this.settings.recentTags.filter((t) => t !== cleanTag);
     this.settings.recentTags.unshift(cleanTag);
     if (this.settings.recentTags.length > this.settings.maxRecentTags) {
       this.settings.recentTags = this.settings.recentTags.slice(0, this.settings.maxRecentTags);
     }
-    this.saveSettings();
+    this.saveData(this.settings);
   }
-  // Annotate selection with footnote
   async annotateSelection(view, selectionSnapshot) {
     const request = this.buildSelectionRequest(view, selectionSnapshot);
     if (!request) {
@@ -3260,14 +3177,24 @@ ${appendString}`;
     await this.saveUndoState(targetFile);
     new AnnotationModal(this.app, async (comment) => {
       var _a;
+      const newResult = await this.logic.locateSelection(
+        view.file,
+        view,
+        request.snippet,
+        request.contextText,
+        request.occurrenceIndex
+      );
+      if (!newResult) {
+        new import_obsidian7.Notice("Selection lost - file may have changed.");
+        return;
+      }
       const currentRaw = await this.app.vault.read(targetFile);
-      await this.applyAnnotation(targetFile, currentRaw, result.start, result.end, comment);
+      await this.applyAnnotation(targetFile, currentRaw, newResult.start, newResult.end, comment);
       this.restoreScroll(view, scrollPos);
       (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
       new import_obsidian7.Notice("Annotation added!");
     }).open();
   }
-  // Apply annotation as footnote
   async applyAnnotation(file, raw, start, end, comment) {
     if (!raw) {
       raw = await this.app.vault.read(file);
@@ -3277,8 +3204,7 @@ ${appendString}`;
     let match;
     while ((match = footnotePattern.exec(raw)) !== null) {
       const num = parseInt(match[1]);
-      if (num > maxNumber)
-        maxNumber = num;
+      if (num > maxNumber) maxNumber = num;
     }
     const footnoteNum = maxNumber + 1;
     const beforeSelection = raw.substring(0, end);
@@ -3299,7 +3225,6 @@ ${appendString}`;
       return;
     }
     const scrollPos = getScroll(view);
-    await this.saveUndoState(view.file);
     const result = await this.logic.locateSelection(
       view.file,
       view,
@@ -3318,22 +3243,20 @@ ${appendString}`;
     this.restoreScroll(view, scrollPos);
     sel == null ? void 0 : sel.removeAllRanges();
   }
-  // Remove all highlights from file
   async removeAllHighlights(view) {
     await this.saveUndoState(view.file);
     let raw = await this.app.vault.read(view.file);
-    raw = raw.replace(/==(.*?)==/g, "$1");
-    raw = raw.replace(/<mark[^>]*>(.*?)<\/mark>/g, "$1");
+    raw = raw.replace(/==(.*?)==/gs, "$1");
+    raw = raw.replace(/<mark[^>]*>(.*?)<\/mark>/gs, "$1");
     await this.app.vault.modify(view.file, raw);
     new import_obsidian7.Notice("All highlights removed.");
   }
-  // Export highlights to new MD file
   async exportHighlights(view) {
     try {
       const exportPath = await exportHighlightsToMD(this.app, view.file);
       new import_obsidian7.Notice(`Highlights exported to ${exportPath}`);
       const exportFile = this.app.vault.getAbstractFileByPath(exportPath);
-      if (exportFile) {
+      if (exportFile instanceof import_obsidian7.TFile) {
         await this.app.workspace.getLeaf().openFile(exportFile);
       }
     } catch (err) {
@@ -3363,10 +3286,8 @@ ${appendString}`;
   async applyColorHighlight(view, color, autoTag = "", selectionSnapshot) {
     const sel = window.getSelection();
     const request = this.buildSelectionRequest(view, selectionSnapshot);
-    if (!request)
-      return;
+    if (!request) return;
     const scrollPos = getScroll(view);
-    await this.saveUndoState(view.file);
     const result = await this.logic.locateSelection(
       view.file,
       view,
@@ -3385,15 +3306,13 @@ ${appendString}`;
     sel == null ? void 0 : sel.removeAllRanges();
     new import_obsidian7.Notice("Highlighted!");
   }
-  // Reading progress
   saveReadingProgress() {
     const view = this.getActiveReadingView();
-    if (!view || !view.file)
-      return;
+    if (!view || !view.file) return;
     const pos = getScroll(view);
     if (pos && pos.y > 0) {
       this.settings.readingPositions[view.file.path] = pos.y;
-      this.saveSettings();
+      this.saveData(this.settings);
     }
   }
   async resumeReading(view) {
@@ -3405,14 +3324,14 @@ ${appendString}`;
       new import_obsidian7.Notice("No saved position for this file.");
     }
   }
-  // Activate navigator view
   async activateNavigatorView() {
+    var _a;
     const existing = this.app.workspace.getLeavesOfType(HIGHLIGHT_NAVIGATOR_VIEW);
     if (existing.length) {
       this.app.workspace.revealLeaf(existing[0]);
       return;
     }
-    const leaf = this.app.workspace.getRightLeaf(false);
+    const leaf = (_a = this.app.workspace.getRightLeaf(false)) != null ? _a : this.app.workspace.getLeaf("tab");
     await leaf.setViewState({
       type: HIGHLIGHT_NAVIGATOR_VIEW,
       active: true
@@ -3464,8 +3383,7 @@ ${appendString}`;
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${offsetHours}:${offsetRemainder}`;
   }
   extractDomain(url) {
-    if (!url)
-      return "";
+    if (!url) return "";
     try {
       const parsed = new URL(url);
       const hostname = parsed.hostname;
@@ -3614,20 +3532,15 @@ ${appendString}`;
     }
     const processedLines = lines.map((line) => {
       let cleanLine = line.replace(/<mark[^>]*>/g, "").replace(/<\/mark>/g, "");
-      if (this.isTableAlignmentRow(line)) {
-        return line;
-      }
+      if (this.isTableAlignmentRow(line)) return line;
       if (this.isTableDataRow(line)) {
         cleanLine = cleanLine.split("==").join("");
-        if (mode === "remove")
-          return cleanLine;
+        if (mode === "remove") return cleanLine;
         const parts = cleanLine.split("|");
         const wrappedParts = parts.map((cell, idx) => {
-          if (idx === 0 || idx === parts.length - 1)
-            return cell;
+          if (idx === 0 || idx === parts.length - 1) return cell;
           const trimmedCell = cell.trim();
-          if (!trimmedCell)
-            return cell;
+          if (!trimmedCell) return cell;
           const leadWS = cell.match(/^(\s*)/)[1];
           const trailWS = cell.match(/(\s*)$/)[1];
           let wrapped;
@@ -3653,13 +3566,9 @@ ${appendString}`;
       } else if (mode === "italic") {
         cleanLine = cleanLine.split("*").join("");
       }
-      if (mode === "remove") {
-        return cleanLine;
-      }
+      if (mode === "remove") return cleanLine;
       const { indent, prefix, content } = this.splitMarkdownLine(cleanLine);
-      if (!content.trim()) {
-        return line;
-      }
+      if (!content.trim()) return line;
       const trimmedContent = content.trim();
       const tagStr = fullTag ? `${fullTag} ` : "";
       let wrappedContent = trimmedContent;
@@ -3710,10 +3619,6 @@ ${appendString}`;
       applyScroll(view, pos);
     });
   }
-  /**
-   * Recovery Layer: Triggered when locateSelection fails.
-   * Shows a modal to the user to manually correct the text and "learn" the rule.
-   */
   handleSelectionFailure(view, request, actionType, payload = null) {
     const report = this.logic.lastFailureReport;
     if (!report) {
@@ -3747,6 +3652,7 @@ ${appendString}`;
 var ReadingHighlighterSettingTab = class extends import_obsidian7.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
+    __publicField(this, "plugin");
     this.plugin = plugin;
   }
   display() {
@@ -3866,15 +3772,11 @@ var ReadingHighlighterSettingTab = class extends import_obsidian7.PluginSettingT
     }));
     tagSetting.settingEl.style.display = this.plugin.settings.enableFrontmatterTag ? "" : "none";
     containerEl.createEl("h3", { text: "Learned Normalization Rules" });
-    containerEl.createEl("p", {
-      text: "The plugin automatically learns to ignore certain characters that cause highlighting failures (like footnotes or special citations). You can manage them here.",
-      cls: "setting-item-description"
-    });
     if (this.plugin.settings.learnedNormRules.length === 0) {
       containerEl.createEl("p", { text: "No rules learned yet.", cls: "setting-item-description" });
     } else {
       this.plugin.settings.learnedNormRules.forEach((rule, index) => {
-        const s = new import_obsidian7.Setting(containerEl).setName(`Rule ${index + 1}`).setDesc(`Ignore: "${rule.stripPattern}"`).addButton((btn) => btn.setButtonText("Delete").setWarning().onClick(async () => {
+        new import_obsidian7.Setting(containerEl).setName(`Rule ${index + 1}`).setDesc(`Ignore: "${rule.stripPattern}"`).addButton((btn) => btn.setButtonText("Delete").setWarning().onClick(async () => {
           this.plugin.settings.learnedNormRules.splice(index, 1);
           await this.plugin.saveSettings();
           this.display();
